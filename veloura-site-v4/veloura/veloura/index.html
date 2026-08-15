@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Veloura Ice Cream Parlour &amp; Café</title>
+<meta name="description" content="Veloura is an ice cream parlour and café: 16 small-batch flavours from Dubai Chocolate Kunafa to Kesar Pista Kulfi, twelve ways to eat them, and five parlours across India. Small-batch scoops, big-city flavours." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/shop.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 64'%3E%3Cpath d='M13.5 41 L34.5 41 L31 59 Q30.6 61 28.6 61 L19.4 61 Q17.4 61 17 59 Z' fill='none' stroke='%232A1E17' stroke-width='3.4'/%3E%3Cpath d='M12.5 41 C12 29 16 20.5 22.5 19.5 C27 18.8 32 22 34 27.5 C35.4 31.3 35.5 36 35.5 41 Z' fill='%23E0A83C' stroke='%232A1E17' stroke-width='3.4'/%3E%3Cellipse cx='39.5' cy='10.5' rx='5.6' ry='4.4' transform='rotate(28 39.5 10.5)' fill='none' stroke='%232A1E17' stroke-width='2.8'/%3E%3Cline x1='36' y1='14' x2='29' y2='23' stroke='%232A1E17' stroke-width='2.8' stroke-linecap='round'/%3E%3C/svg%3E" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<!-- Intro animation: a short, purely-decorative brand moment. It never blocks
+     the page — the site underneath is already rendering while this plays,
+     it just fades itself out and removes itself after ~1.9s. -->
+<div id="intro" class="intro" aria-hidden="true">
+  <div class="intro-glow"></div>
+  <svg class="intro-mark" viewBox="0 0 48 64">
+        <path d="M13.5 41 L34.5 41 L31 59 Q30.6 61 28.6 61 L19.4 61 Q17.4 61 17 59 Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+    <path d="M16 48.5h16" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45"/>
+    <path d="M12.5 41 C12 29 16 20.5 22.5 19.5 C27 18.8 32 22 34 27.5 C35.4 31.3 35.5 36 35.5 41 Z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M16.5 32.5 Q24 29 31 32.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45" fill="none"/>
+    <path d="M16.5 36.5 Q24 33.5 31 36.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".45" fill="none"/>
+    <ellipse cx="39.5" cy="10.5" rx="5.6" ry="4.4" transform="rotate(28 39.5 10.5)" fill="none" stroke="currentColor" stroke-width="1.9"/>
+    <line x1="36" y1="14" x2="29" y2="23" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+  </svg>
+  <span class="intro-word">Veloura</span>
+</div>
+<script>
+  // Remove the intro overlay from the DOM once its fade-out finishes, so it
+  // doesn't sit around affecting layout, tab order, or screen readers.
+  (function () {
+    var intro = document.getElementById('intro');
+    if (!intro) return;
+    var done = function () { intro.remove(); };
+    // Only react to the overlay's OWN fade-out animation finishing — child
+    // animations (the logo, the word) also fire 'animationend' and bubble up,
+    // which would otherwise yank the whole overlay away too early.
+    intro.addEventListener('animationend', function (e) {
+      if (e.target === intro && e.animationName === 'intro-out') done();
+    });
+    setTimeout(done, 2200); // safety net in case the animation event doesn't fire
+  })();
+</script>
+
+<!-- Fixed 3D stage -->
+<div class="stage" id="stage">
+  <div class="canvas-wrap">
+    <canvas id="scene"></canvas>
+    <div id="hotspots" class="hotspots"></div>
+    <div id="tooltip" class="tooltip" role="status" aria-live="polite"></div>
+    <div id="webgl-fallback" class="webgl-fallback" hidden>
+      <h3>3D unavailable</h3>
+      <p>Your browser or device has WebGL turned off, so the interactive counter can't render. Everything else on this page still works — scroll on for the flavours, the varieties and the parlours.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Nav -->
+<header class="nav" id="nav">
+  <a class="brand" href="#top" aria-label="Veloura home">
+    <svg class="brand-mark" viewBox="0 0 48 64" aria-hidden="true">
+            <path d="M13.5 41 L34.5 41 L31 59 Q30.6 61 28.6 61 L19.4 61 Q17.4 61 17 59 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M16 48.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45"/>
+      <path d="M12.5 41 C12 29 16 20.5 22.5 19.5 C27 18.8 32 22 34 27.5 C35.4 31.3 35.5 36 35.5 41 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M16.5 32.5 Q24 29 31 32.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+      <path d="M16.5 36.5 Q24 33.5 31 36.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+      <ellipse cx="39.5" cy="10.5" rx="5.6" ry="4.4" transform="rotate(28 39.5 10.5)" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <line x1="36" y1="14" x2="29" y2="23" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+    <span class="brand-word">Veloura</span>
+  </a>
+  <nav class="nav-links" aria-label="Primary">
+    <a href="#studio">The Counter</a>
+    <a href="#flavours">Flavours</a>
+    <a href="#parlours">Parlours</a>
+    <a href="#order">Order</a>
+  </nav>
+  <button class="btn btn-solid btn-sm cart-btn" id="cart-open" type="button" aria-haspopup="dialog">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h2l2.2 10.2a1.6 1.6 0 0 0 1.6 1.3h7.6a1.6 1.6 0 0 0 1.6-1.2L20.5 8H7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="20" r="1.2"/><circle cx="17.5" cy="20" r="1.2"/></svg>
+    <span>Cart</span><span class="cart-count" id="cart-count" hidden>0</span>
+  </button>
+</header>
+
+<main id="top">
+  <!-- HERO -->
+  <section class="hero" id="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Ice cream parlour &amp; dessert café · Est. Kanpur</p>
+      <h1 class="display">Small-batch scoops,<br /><em>big-city flavours.</em></h1>
+      <p class="lede">Sixteen flavours churned in small batches — Dubai Chocolate Kunafa, Sicilian pistachio, kesar pista kulfi, kala khatta — and twelve different ways to eat them. Spin the counter, pick a size, watch it change.</p>
+      <div class="hero-actions">
+        <a class="btn btn-solid" href="#flavours">See all 16 flavours</a>
+        <a class="btn btn-ghost" href="#studio">Build it in 3D</a>
+      </div>
+      <div class="hint-chip"><span class="dot"></span> Drag to spin · Tap a scoop · Ek scoop lo, phir baat karte hain</div>
+    </div>
+    <div class="scroll-cue" aria-hidden="true"><span>Scroll</span><i></i></div>
+  </section>
+
+  <!-- INTERACTIVE STUDIO -->
+  <section class="section studio" id="studio">
+    <div class="sec-head reveal">
+      <p class="eyebrow">The interactive counter</p>
+      <h2 class="display">Twelve varieties.<br /><em>Four sizes. Live.</em></h2>
+      <p class="lede">Every model here is drawn by code, not downloaded — swap the variety and the whole shape is rebuilt. Hover any part to name it, tap it for the story behind it.</p>
+    </div>
+
+    <div class="studio-grid">
+      <div class="panel reveal">
+        <div class="panel-head">
+          <h3 class="panel-title">Pick a variety</h3>
+          <span class="panel-price" id="variety-price">₹169</span>
+        </div>
+        <div class="chips chips-variety" id="variety-chips" role="group" aria-label="Variety selector"></div>
+        <p class="chip-note" id="variety-note">Two scoops in a cast-iron waffle cone with a chocolate-sealed tip.</p>
+      </div>
+
+      <div class="panel reveal">
+        <div class="panel-head">
+          <h3 class="panel-title">Choose a size</h3>
+          <span class="panel-price" id="size-meta">150 ml · 2 scoops</span>
+        </div>
+        <div class="seg" id="size-seg" role="group" aria-label="Size selector"></div>
+        <p class="chip-note">Sizes change the 3D model live — scoop count, height and heft. <b id="size-line">Regular · 150 ml · 2 scoops · ₹169</b></p>
+      </div>
+
+      <div class="panel reveal">
+        <div class="panel-head">
+          <h3 class="panel-title">Loaded flavour</h3>
+          <span class="panel-price" id="flavour-badge">Classic</span>
+        </div>
+        <div class="chips" id="flavour-quick" role="group" aria-label="Quick flavour selector"></div>
+        <p class="chip-note" id="flavour-note">Bourbon pods from Sava, steeped 72 hours, roughly 1,100 seeds a litre.</p>
+        <a class="mini-link" href="#flavours">All 16 flavours on the counter →</a>
+      </div>
+    </div>
+
+    <div class="studio-cta reveal">
+      <div class="studio-cta-info">
+        <span class="studio-cta-label">Your build</span>
+        <b id="studio-cta-summary">Classic Waffle Cone · Regular · Madagascar Vanilla Bean</b>
+      </div>
+      <button type="button" class="btn btn-solid" id="studio-add-cart">Add to cart · <span id="studio-cta-price">₹169</span></button>
+    </div>
+
+    <div id="info-card" class="info-card" hidden>
+      <button class="info-close" id="info-close" aria-label="Close">×</button>
+      <p class="eyebrow" id="info-kicker">Component</p>
+      <h3 id="info-title">Title</h3>
+      <p id="info-body">Body</p>
+      <ul id="info-list"></ul>
+    </div>
+  </section>
+
+  <div class="page-rest">
+  <!-- FLAVOURS -->
+  <section class="section flavours" id="flavours">
+    <div class="sec-head reveal">
+      <p class="eyebrow">The counter · 16 flavours</p>
+      <h2 class="display">Everything we churn,<br /><em>in one cabinet.</em></h2>
+      <p class="lede">Tap any flavour to load it into the 3D counter above. Premium flavours carry a +₹60 badge; everything is GST-inclusive.</p>
+      <div class="filter-row" id="flavour-filters" role="group" aria-label="Filter flavours">
+        <button class="pill is-active" data-filter="all">All 16</button>
+        <button class="pill" data-filter="trending">Trending</button>
+        <button class="pill" data-filter="classic">Classic</button>
+        <button class="pill" data-filter="seasonal">Seasonal</button>
+        <button class="pill" data-filter="vegan">Vegan</button>
+      </div>
+    </div>
+    <div class="flavour-grid" id="flavour-grid"></div>
+  </section>
+
+  <!-- TRENDING STRIP -->
+  <section class="section trending" id="trending">
+    <div class="sec-head reveal">
+      <p class="eyebrow">Trending in 2026</p>
+      <h2 class="display">What the country<br /><em>is actually eating.</em></h2>
+    </div>
+    <div class="trend-grid">
+      <article class="trend reveal">
+        <b>29.6%</b>
+        <p>Vanilla still holds the largest single share of global ice cream sales in 2026 — which is why our Madagascar Vanilla Bean never leaves the cabinet.</p>
+        <a href="https://www.alibaba.com/product-insights/2026-ice-cream-flavor-report-vanilla-dominates-2026-sales-with-29-6-market-share.html" target="_blank" rel="noopener">2026 Ice Cream Flavor Report ↗</a>
+      </article>
+      <article class="trend reveal">
+        <b>Dubai Chocolate</b>
+        <p>Pistachio-kunafa is the biggest viral flavour of the cycle; Baskin-Robbins brought back a whole Dubai Chocolate line-up — sundae, bar, shake and cake — in April 2026.</p>
+        <a href="https://parade.com/food/baskin-robbins-dubai-pistachio-chocolate-ice-cream-bar-new-cake" target="_blank" rel="noopener">Parade ↗</a>
+      </article>
+      <article class="trend reveal">
+        <b>+13.4%</b>
+        <p>Coconut-based desserts grew 13.4% year on year over the Indian summer of 2026, per Swiggy's food report — our Tender Coconut is the vegan answer to it.</p>
+        <a href="https://www.mid-day.com/amp/lifestyle/food/article/new-swiggy-food-report-reveals-everything-that-indians-ordered-to-survive-the-summer-in-2026-23641032" target="_blank" rel="noopener">Mid-Day / Swiggy report ↗</a>
+      </article>
+      <article class="trend reveal">
+        <b>Kunafa &amp; Gulkand</b>
+        <p>Kunafa ice cream, Alphonso mango and rose gulkand lead India's best-selling summer flavours in 2026, with kala khatta and rabdi close behind.</p>
+        <a href="https://www.billberrypos.com/best-selling-ice-cream-flavors-during-summer-in-india-2026/" target="_blank" rel="noopener">Billberry POS ↗</a>
+      </article>
+    </div>
+  </section>
+
+  <!-- VARIETY MENU -->
+  <section class="section variety-menu" id="varieties">
+    <div class="sec-head reveal">
+      <p class="eyebrow">Twelve varieties</p>
+      <h2 class="display">Cone, stick, glass,<br /><em>bowl, tub, shake.</em></h2>
+      <p class="lede">Same sixteen flavours, twelve completely different builds. Prices are for the Regular size; Mini, Large and Party are priced on the counter above.</p>
+    </div>
+    <div class="variety-grid" id="variety-grid"></div>
+  </section>
+
+  <!-- PARLOURS -->
+  <section class="section parlours" id="parlours">
+    <div class="sec-head reveal">
+      <p class="eyebrow">Our parlours</p>
+      <h2 class="display">Five counters.<br /><em>Five different moods.</em></h2>
+      <p class="lede">Pick a parlour to see what it is known for — the signature varieties get starred on the 3D counter above.</p>
+      <div class="filter-row" id="outlet-tabs" role="group" aria-label="Filter parlours"></div>
+    </div>
+    <div class="parlour-grid" id="parlour-grid"></div>
+    <p class="fine-note">Parlour addresses and phone numbers shown here are illustrative for this demo site. Orders are fulfilled from the Swaroop Nagar creamery in Kanpur.</p>
+  </section>
+
+  <!-- CRAFT -->
+  <section class="section craft" id="craft">
+    <div class="sec-head reveal">
+      <p class="eyebrow">Craft</p>
+      <h2 class="display">Four ingredients.<br /><em>Nowhere to hide.</em></h2>
+    </div>
+    <div class="cards">
+      <article class="card reveal">
+        <span class="card-num">01</span>
+        <h3>Real fruit, real nuts, real pods</h3>
+        <p>Ratnagiri Alphonso pulped in April, Bronte pistachios roasted in-house, Madagascar bourbon pods split and scraped the morning of each churn. Nothing arrives as a bottle labelled "natural flavour".</p>
+      </article>
+      <article class="card reveal">
+        <span class="card-num">02</span>
+        <h3>Single-herd Jersey cream</h3>
+        <p>42% butterfat from a family dairy an hour outside Kanpur. High fat means fewer ice crystals, which is the whole trick — silk instead of frost, without a single stabiliser.</p>
+      </article>
+      <article class="card reveal">
+        <span class="card-num">03</span>
+        <h3>Two freezers, two philosophies</h3>
+        <p>Scooped ice cream churns at −6°C with 24% overrun. Kulfi is not churned at all: milk reduced four hours, poured into matka moulds and set in −22°C brine. Same counter, opposite methods.</p>
+      </article>
+      <article class="card reveal">
+        <span class="card-num">04</span>
+        <h3>Cones and bowls pressed to order</h3>
+        <p>Batter of butter, cane sugar and flaked sea salt, pressed on cast-iron waffle plates and rolled — or domed into a bowl — while pliable. Twelve seconds of warmth is the difference between crisp and sad.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- SPECS -->
+  <section class="section specs" id="specs">
+    <div class="sec-head reveal">
+      <p class="eyebrow">Nutrition &amp; specs</p>
+      <h2 class="display">The honest numbers.</h2>
+      <p class="lede">Per 100 ml of a standard scooped churn. No gums, no glycerol, no hiding.</p>
+    </div>
+    <div class="stats">
+      <div class="stat reveal"><b>16</b><span>Flavours on the counter</span></div>
+      <div class="stat reveal"><b>12</b><span>Varieties, one flavour each</span></div>
+      <div class="stat reveal"><b>17%</b><span>Butterfat</span></div>
+      <div class="stat reveal"><b>212</b><span>kcal / 100 ml</span></div>
+      <div class="stat reveal"><b>24%</b><span>Overrun (air)</span></div>
+      <div class="stat reveal"><b>0%</b><span>Overrun in kulfi</span></div>
+      <div class="stat reveal"><b>₹89</b><span>From, per popsicle</span></div>
+      <div class="stat reveal"><b>5</b><span>Parlours, 4 cities</span></div>
+    </div>
+  </section>
+
+  <!-- REVIEWS -->
+  <section class="section reviews" id="reviews">
+    <div class="sec-head reveal">
+      <p class="eyebrow">Word of mouth</p>
+      <h2 class="display">People get<br /><em>a little dramatic.</em></h2>
+    </div>
+    <div class="quotes">
+      <figure class="quote reveal">
+        <blockquote>"Ordered the Dubai Chocolate Sundae expecting a trend. Got a glass of kataifi crunch I have now thought about on three separate Tuesdays."</blockquote>
+        <figcaption>Ananya Rastogi — Civil Lines, Kanpur</figcaption>
+      </figure>
+      <figure class="quote reveal">
+        <blockquote>"The kulfi is the real thing — dense, unwhipped, tastes like Hazratganj in May. My father approved, and he approves of nothing."</blockquote>
+        <figcaption>Tanmay Vohra — Hazratganj, Lucknow</figcaption>
+      </figure>
+      <figure class="quote reveal">
+        <blockquote>"We served the pistachio after a tasting menu and three guests asked which pastry chef made it. It came from a parlour in Kanpur. Wonderful, slightly humbling."</blockquote>
+        <figcaption>Chef Meher Oberoi — Copper &amp; Salt, New Delhi</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ORDER (unchanged backend) -->
+  <section class="section order" id="order">
+    <div class="order-inner reveal">
+      <div class="order-lead">
+        <p class="eyebrow">Order</p>
+        <h2 class="display">Churned this morning,<br /><em>at your door by evening.</em></h2>
+        <p class="lede">Same-day delivery across Kanpur in insulated dry-ice boxes; next-day to Lucknow, Delhi NCR and Bengaluru. Cones travel separately in a tin so they arrive crisp.</p>
+        <p class="pay-note">Pay by <b>UPI</b> or <b>Cash on Delivery</b>. All prices inclusive of GST · Free delivery in Kanpur on orders above ₹499.</p>
+      </div>
+      <div class="price-cards" id="price-cards">
+        <div class="price-card" data-product="single">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9h12l-6 12Z"/><circle cx="12" cy="6.4" r="3.6"/></svg></div>
+          <h3>Single Scoop Waffle Cone</h3>
+          <p class="price">₹149</p>
+          <ul><li>One generous scoop, hand-pressed cone</li><li>Choose any churn of the day</li><li>Chocolate-sealed tip, always</li></ul>
+          <button class="btn btn-ghost add-btn" type="button" data-add="single">Add to cart</button>
+        </div>
+        <div class="price-card" data-product="double">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12h10l-5 10Z"/><circle cx="12" cy="9.6" r="3.1"/><circle cx="12" cy="6.4" r="2.6"/></svg></div>
+          <h3>Double Scoop Waffle Cone</h3>
+          <p class="price">₹229</p>
+          <ul><li>Two scoops, two churns if you like</li><li>Warm cone, rolled rim</li><li>The everyday order</li></ul>
+          <button class="btn btn-ghost add-btn" type="button" data-add="double">Add to cart</button>
+        </div>
+        <div class="price-card is-feature" data-product="triple">
+          <span class="tag">Most ordered</span>
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12h10l-5 10Z"/><circle cx="12" cy="9.6" r="3.1"/><circle cx="12" cy="5.6" r="2.4"/></svg></div>
+          <h3>Triple Stack Signature Cone</h3>
+          <p class="price">₹299</p>
+          <ul><li>Three scoops with the slow drizzle</li><li>Crowned with an amarena cherry</li><li>Wafer stick on the side</li></ul>
+          <button class="btn btn-solid add-btn" type="button" data-add="triple">Add to cart</button>
+        </div>
+        <div class="price-card" data-product="pint">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 11H7Z"/><ellipse cx="12" cy="8" rx="6" ry="2"/></svg></div>
+          <h3>Pint (500 ml tub)</h3>
+          <p class="price">₹499</p>
+          <ul><li>500 ml of any single churn</li><li>Two pressed cones in a tin</li><li>Qualifies for free Kanpur delivery</li></ul>
+          <button class="btn btn-ghost add-btn" type="button" data-add="pint">Add to cart</button>
+        </div>
+        <div class="price-card" data-product="family">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 11H7Z"/><ellipse cx="12" cy="8" rx="6" ry="2"/><path d="M9 8v11M15 8v11" opacity=".5"/></svg></div>
+          <h3>Family Tub (1 L)</h3>
+          <p class="price">₹899</p>
+          <ul><li>A full litre for the house</li><li>Four cones in a tin</li><li>Best value per scoop</li></ul>
+          <button class="btn btn-ghost add-btn" type="button" data-add="family">Add to cart</button>
+        </div>
+      </div>
+      <p class="gst-note">All prices inclusive of GST · Free delivery in Kanpur on orders above ₹499 · Delivery ₹49 otherwise · UPI / Cash on Delivery</p>
+    </div>
+  </section>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="footer-top">
+    <a class="brand" href="#top" aria-label="Veloura home">
+      <svg class="brand-mark" viewBox="0 0 48 64" aria-hidden="true">
+                <path d="M13.5 41 L34.5 41 L31 59 Q30.6 61 28.6 61 L19.4 61 Q17.4 61 17 59 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M16 48.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45"/>
+        <path d="M12.5 41 C12 29 16 20.5 22.5 19.5 C27 18.8 32 22 34 27.5 C35.4 31.3 35.5 36 35.5 41 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M16.5 32.5 Q24 29 31 32.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+        <path d="M16.5 36.5 Q24 33.5 31 36.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+        <ellipse cx="39.5" cy="10.5" rx="5.6" ry="4.4" transform="rotate(28 39.5 10.5)" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <line x1="36" y1="14" x2="29" y2="23" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-word">Veloura</span>
+    </a>
+    <p>Small-batch scoops, big-city flavours. Churned at our creamery in Swaroop Nagar, Kanpur, Uttar Pradesh; served at five parlours across Kanpur, Lucknow, Delhi, Bengaluru and Mumbai. Popsicles from ₹89 · UPI &amp; Cash on Delivery.</p>
+  </div>
+  <div class="footer-bot">
+    <span>© 2026 Veloura Ice Cream Parlour &amp; Café, Kanpur · Aditya Kumar · adityatzzz87@gmail.com</span>
+    <span>All prices in ₹, inclusive of GST.</span>
+    <span><a href="admin.html">Owner login</a></span>
+  </div>
+</footer>
+
+<!-- ===== CART / CHECKOUT DRAWER (unchanged) ===== -->
+<div class="drawer-scrim" id="drawer-scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Your cart" hidden>
+  <header class="drawer-head">
+    <div>
+      <p class="eyebrow" id="drawer-kicker">Your cart</p>
+      <h2 class="drawer-title" id="drawer-title">A little something sweet</h2>
+    </div>
+    <button class="drawer-close" id="drawer-close" type="button" aria-label="Close cart">×</button>
+  </header>
+
+  <section class="drawer-step" id="step-cart">
+    <div class="cart-empty" id="cart-empty">
+      <svg viewBox="0 0 48 64" aria-hidden="true" width="38" height="50"><path d="M13.5 41 L34.5 41 L31 59 Q30.6 61 28.6 61 L19.4 61 Q17.4 61 17 59 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><path d="M12.5 41 C12 29 16 20.5 22.5 19.5 C27 18.8 32 22 34 27.5 C35.4 31.3 35.5 36 35.5 41 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><ellipse cx="39.5" cy="10.5" rx="5.6" ry="4.4" transform="rotate(28 39.5 10.5)" fill="none" stroke="currentColor" stroke-width="2.4"/><line x1="36" y1="14" x2="29" y2="23" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <p>Your cart is empty. The Triple Stack is what most people regret not ordering.</p>
+    </div>
+    <ul class="cart-lines" id="cart-lines"></ul>
+    <div class="cart-totals" id="cart-totals" hidden>
+      <div class="tot-row"><span>Subtotal</span><b id="sum-subtotal">₹0</b></div>
+      <div class="tot-row"><span>Delivery</span><b id="sum-delivery">₹49</b></div>
+      <div class="tot-row is-grand"><span>Total</span><b id="sum-total">₹0</b></div>
+      <p class="free-hint" id="free-hint"></p>
+    </div>
+    <p class="fine">All prices inclusive of GST · Free delivery in Kanpur on orders above ₹499</p>
+    <button class="btn btn-solid drawer-cta" id="to-checkout" type="button" disabled>Checkout</button>
+  </section>
+
+  <section class="drawer-step" id="step-checkout" hidden>
+    <form id="checkout-form" novalidate>
+      <div class="field">
+        <label for="f-name">Full name</label>
+        <input id="f-name" name="customer_name" type="text" autocomplete="name" placeholder="Aditya Kumar" />
+        <p class="err" data-err="customer_name"></p>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="f-phone">Mobile number</label>
+          <input id="f-phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="9876543210" />
+          <p class="err" data-err="phone"></p>
+        </div>
+        <div class="field">
+          <label for="f-pincode">Pincode</label>
+          <input id="f-pincode" name="pincode" type="text" inputmode="numeric" autocomplete="postal-code" placeholder="208002" />
+          <p class="err" data-err="pincode"></p>
+        </div>
+      </div>
+      <div class="field">
+        <label for="f-email">Email</label>
+        <input id="f-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
+        <p class="err" data-err="email"></p>
+      </div>
+      <div class="field">
+        <label for="f-address">Full delivery address</label>
+        <textarea id="f-address" name="address" rows="3" placeholder="Flat / house, street, landmark"></textarea>
+        <p class="err" data-err="address"></p>
+      </div>
+      <div class="field">
+        <label for="f-city">City</label>
+        <input id="f-city" name="city" type="text" value="Kanpur" autocomplete="address-level2" />
+        <p class="err" data-err="city"></p>
+      </div>
+      <fieldset class="field pay">
+        <legend>Payment</legend>
+        <label class="radio"><input type="radio" name="payment_method" value="UPI" checked /><span><b>UPI</b><small>GPay, PhonePe, Paytm — link sent on confirmation</small></span></label>
+        <label class="radio"><input type="radio" name="payment_method" value="COD" /><span><b>Cash on Delivery</b><small>Pay the rider in Kanpur</small></span></label>
+        <p class="err" data-err="payment_method"></p>
+      </fieldset>
+      <div class="field">
+        <label for="f-notes">Notes <span class="opt">(optional)</span></label>
+        <textarea id="f-notes" name="notes" rows="2" placeholder="Ring the bell twice, leave at the gate…"></textarea>
+      </div>
+      <div class="cart-totals">
+        <div class="tot-row"><span>Subtotal</span><b id="co-subtotal">₹0</b></div>
+        <div class="tot-row"><span>Delivery</span><b id="co-delivery">₹49</b></div>
+        <div class="tot-row is-grand"><span>Total</span><b id="co-total">₹0</b></div>
+      </div>
+      <p class="api-error" id="api-error" hidden></p>
+      <div class="drawer-actions">
+        <button class="btn btn-ghost" id="back-to-cart" type="button">Back to cart</button>
+        <button class="btn btn-solid" id="place-order" type="submit">Place order</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="drawer-step success" id="step-success" hidden>
+    <div class="success-mark" aria-hidden="true">
+      <svg viewBox="0 0 48 48" width="56" height="56" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="24" cy="24" r="21"/><path d="M15 25l6.5 6.5L34 18" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h3 class="display success-title">Order placed.</h3>
+    <p class="success-copy">We've pinged the creamery in Kanpur. Aditya or someone from the team will call you shortly to confirm.</p>
+    <div class="success-box">
+      <div><span>Order code</span><b id="ok-code">—</b></div>
+      <div><span>Total</span><b id="ok-total">—</b></div>
+      <div><span>Payment</span><b id="ok-pay">—</b></div>
+      <div><span>Placed</span><b id="ok-time">—</b></div>
+    </div>
+    <button class="btn btn-solid drawer-cta" id="success-done" type="button">Keep browsing</button>
+  </section>
+</aside>
+
+<!-- ⚠️ SET THIS after you deploy the backend (server.js) — e.g. to Render.
+     Netlify only serves static files, so this tells the site where the real
+     order backend lives. Leave it as '' ONLY if server.js itself is serving
+     this page (i.e. you're not using Netlify at all). -->
+<script>window.VELOURA_API_BASE = '';</script>
+<script src="js/shop.js"></script>
+<script type="module" src="js/main.js"></script>
+<script type="module" src="js/ui.js"></script>
+<script data-pplx-inline-edit>
+(function () {
+  if (window === window.top) return;
+
+  const allowedParentOrigins = ["https://www.perplexity.ai","https://perplexity.ai","https://testing.perplexity.ai","https://staging.perplexity.ai","https://*.preview.i.perplexity.ai","http://perplexity.localhost","http://localhost:1420","http://127.0.0.1:1420","http://localhost:3000","http://127.0.0.1:3000","http://localhost:5173","http://127.0.0.1:5173"];
+  const MAX_FONT_BYTES = 500 * 1024;
+  const MAX_TOTAL_FONT_BYTES = 2 * 1024 * 1024;
+  let scrollForwarding = false;
+  let scrollRaf = 0;
+  let trustedTopOrigin = null;
+
+  // Allow entries like "https://*.preview.i.perplexity.ai" — the wildcard
+  // matches a single DNS label (no dots), so "https://*.foo" cannot stretch
+  // across multiple labels.
+  function matchesAllowedOrigin(origin) {
+    if (!origin) return false;
+    for (const entry of allowedParentOrigins) {
+      if (!entry.includes("*")) {
+        if (entry === origin) return true;
+        continue;
+      }
+      const pattern = new RegExp(
+        "^" +
+          entry.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]+") +
+          "$",
+      );
+      if (pattern.test(origin)) return true;
+    }
+    return false;
+  }
+
+  // Trust decision: when the sender is same-origin-visible (event.origin is a
+  // real origin like https://www.perplexity.ai) we trust event.origin directly.
+  // When event.origin is "null" (opaque broker srcdoc), we fall back to the
+  // broker's stamped `parentOrigin` to identify the top window. The fallback
+  // is claim-only — we rely on the browser's native `targetOrigin` enforcement
+  // on the response path (see postToTrustedTop) to ensure replies can't be
+  // delivered to anyone but the actual top window of that claimed origin.
+  function getTrustedParentOrigin(event) {
+    const forwardedParentOrigin =
+      typeof event.data.parentOrigin === "string" ? event.data.parentOrigin : null;
+    const parentOrigin = event.origin === "null" ? forwardedParentOrigin : event.origin;
+    return matchesAllowedOrigin(parentOrigin) ? parentOrigin : null;
+  }
+
+  // All responses go to window.top with targetOrigin = the allowlisted origin.
+  // An attacker that iframes us inside their own null-origin broker can claim
+  // any parentOrigin they like, but the browser will drop the reply whenever
+  // the real top's origin doesn't match — so the screenshot never leaves.
+  function postToTrustedTop(message) {
+    if (!trustedTopOrigin) return;
+    try {
+      window.top.postMessage(message, trustedTopOrigin);
+    } catch (_error) {}
+  }
+
+  function inlineAll(original, clone) {
+    if (original.nodeType !== 1 || clone.nodeType !== 1) return;
+
+    try {
+      const computedStyle = getComputedStyle(original);
+      // cssText on a computed style is the serialized declaration in modern
+      // Chromium/Safari — a single read beats enumerating ~400 longhand
+      // properties. Firefox returns "" here, so we fall back on empty.
+      const serialized = computedStyle.cssText;
+      if (serialized) {
+        clone.style.cssText = serialized;
+      } else {
+        const parts = new Array(computedStyle.length);
+        for (let index = 0; index < computedStyle.length; index += 1) {
+          const property = computedStyle[index];
+          parts[index] = `${property}:${computedStyle.getPropertyValue(property)};`;
+        }
+        clone.style.cssText = parts.join("");
+      }
+    } catch (_error) {}
+
+    const originalChildren = original.children;
+    const clonedChildren = clone.children;
+    for (
+      let index = 0;
+      index < originalChildren.length && index < clonedChildren.length;
+      index += 1
+    ) {
+      inlineAll(originalChildren[index], clonedChildren[index]);
+    }
+  }
+
+  function extractFontUrl(srcValue) {
+    const matches = [
+      ...srcValue.matchAll(
+        /url\(["']?([^"')]+)["']?\)(?:\s*format\(["']?([^"')]+)["']?\))?/gi,
+      ),
+    ];
+    if (matches.length === 0) return null;
+    const woff2 = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff2"));
+    if (woff2) return woff2[1];
+    const woff = matches.find((m) => m[2] && m[2].toLowerCase().includes("woff"));
+    if (woff) return woff[1];
+    return matches[0][1];
+  }
+
+  // Cache resolved font URL -> data URI across captures. Fonts on a page
+  // essentially never change, and a batch run emits multiple captures back to
+  // back — without this we'd refetch + re-base64 every time.
+  const fontDataUriCache = new Map();
+  const SRC_DECLARATION_RE = /src\s*:\s*[^;}]+/i;
+
+  async function fetchAsDataUri(url) {
+    if (fontDataUriCache.has(url)) return fontDataUriCache.get(url);
+    let dataUri = null;
+    try {
+      const response = await fetch(url, { mode: "cors", credentials: "omit" });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.size <= MAX_FONT_BYTES) {
+          dataUri = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () =>
+              resolve(typeof reader.result === "string" ? reader.result : null);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch (_error) {
+      dataUri = null;
+    }
+    fontDataUriCache.set(url, dataUri);
+    return dataUri;
+  }
+
+  function collectFontFaceRuleTexts() {
+    const rules = [];
+    for (const sheet of document.styleSheets) {
+      let cssRules;
+      try {
+        cssRules = sheet.cssRules;
+      } catch (_error) {
+        continue;
+      }
+      if (!cssRules) continue;
+      for (const rule of cssRules) {
+        const cssText = rule.cssText || "";
+        if (cssText.startsWith("@font-face")) rules.push(cssText);
+      }
+    }
+    return rules;
+  }
+
+  async function buildInlinedFontCss() {
+    const ruleTexts = collectFontFaceRuleTexts();
+    if (ruleTexts.length === 0) return null;
+
+    const resolved = ruleTexts.map((cssText) => {
+      if (!SRC_DECLARATION_RE.test(cssText)) return null;
+      const srcMatch = cssText.match(/src\s*:\s*([^;}]+)[;}]/i);
+      if (!srcMatch) return null;
+      const url = extractFontUrl(srcMatch[1]);
+      if (!url) return null;
+      try {
+        return { cssText, url: new URL(url, document.baseURI).href };
+      } catch (_error) {
+        return null;
+      }
+    });
+
+    const dataUris = await Promise.all(
+      resolved.map((entry) => (entry ? fetchAsDataUri(entry.url) : Promise.resolve(null))),
+    );
+
+    const inlined = [];
+    let totalBytes = 0;
+    for (let index = 0; index < resolved.length; index += 1) {
+      const entry = resolved[index];
+      const dataUri = dataUris[index];
+      if (!entry || !dataUri) continue;
+      const approxBytes = dataUri.length * 0.75;
+      if (totalBytes + approxBytes > MAX_TOTAL_FONT_BYTES) break;
+      totalBytes += approxBytes;
+      inlined.push(entry.cssText.replace(SRC_DECLARATION_RE, `src: url("${dataUri}")`));
+    }
+    return inlined.length > 0 ? inlined.join("\n") : null;
+  }
+
+  function stripExternal(clone) {
+    const images = clone.querySelectorAll("img");
+    for (let index = 0; index < images.length; index += 1) {
+      const src = images[index].getAttribute("src");
+      if (src && !src.startsWith("data:")) images[index].removeAttribute("src");
+    }
+
+    const elements = clone.querySelectorAll("*");
+    for (let index = 0; index < elements.length; index += 1) {
+      const style = elements[index].style.cssText;
+      if (style && style.includes("url(")) {
+        elements[index].style.cssText = style.replace(
+          /url\(["']?(?!data:)[^)"']*["']?\)/gi,
+          "none",
+        );
+      }
+    }
+  }
+
+  function emitScroll() {
+    scrollRaf = 0;
+    if (!scrollForwarding) return;
+    postToTrustedTop({
+      type: "INLINE_EDIT_SCROLL",
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    });
+  }
+
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (!scrollForwarding || scrollRaf) return;
+      scrollRaf = requestAnimationFrame(emitScroll);
+    },
+    { passive: true, capture: true },
+  );
+
+  async function handleCaptureRequest(event) {
+    const requestId = event.data.requestId;
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    function postResult(dataUrl) {
+      postToTrustedTop({
+        type: "INLINE_EDIT_SCREENSHOT_RESULT",
+        requestId,
+        dataUrl,
+        scrollX,
+        scrollY,
+      });
+    }
+
+    try {
+      // Wait for any pending web fonts to resolve so both inline metrics and
+      // the @font-face inlining below see the same loaded faces.
+      if (document.fonts && document.fonts.ready) {
+        try {
+          await document.fonts.ready;
+        } catch (_error) {}
+      }
+
+      const clone = document.documentElement.cloneNode(true);
+      inlineAll(document.documentElement, clone);
+
+      const removedNodes = clone.querySelectorAll("script,link[rel=\"stylesheet\"],style");
+      for (let index = 0; index < removedNodes.length; index += 1) {
+        removedNodes[index].remove();
+      }
+
+      stripExternal(clone);
+
+      // Re-embed web fonts as data-URI @font-face rules so the SVG rasterizer
+      // can resolve them — external font URLs aren't fetched during
+      // foreignObject rendering, which would otherwise force a fallback face
+      // and change text metrics.
+      const inlinedFontCss = await buildInlinedFontCss();
+      if (inlinedFontCss) {
+        const styleEl = document.createElement("style");
+        styleEl.textContent = inlinedFontCss;
+        const head = clone.querySelector("head");
+        if (head) head.appendChild(styleEl);
+        else clone.insertBefore(styleEl, clone.firstChild);
+      }
+
+      const html = new XMLSerializer().serializeToString(clone);
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+        '<foreignObject width="100%" height="100%">' +
+        `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${width}px;height:${height}px;overflow:hidden">` +
+        `<div style="position:relative;left:-${scrollX}px;top:-${scrollY}px">` +
+        html +
+        "</div></div></foreignObject></svg>";
+      const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      const image = new Image();
+      image.onload = function () {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(image, 0, 0);
+        postResult(canvas.toDataURL("image/png"));
+      };
+      image.onerror = function () {
+        postResult(null);
+      };
+      image.src = svgUrl;
+    } catch (_error) {
+      postResult(null);
+    }
+  }
+
+  window.addEventListener("message", function (event) {
+    if (!event.data) return;
+    // Only accept messages from the direct parent frame. Blocks sibling /
+    // unrelated-window postMessage senders that could otherwise reach us.
+    if (event.source !== window.parent) return;
+
+    const trustedParentOrigin = getTrustedParentOrigin(event);
+    if (!trustedParentOrigin) return;
+    trustedTopOrigin = trustedParentOrigin;
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_START") {
+      scrollForwarding = true;
+      emitScroll();
+      return;
+    }
+
+    if (event.data.type === "INLINE_EDIT_SCROLL_STOP") {
+      scrollForwarding = false;
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      scrollRaf = 0;
+      return;
+    }
+
+    if (event.data.type !== "INLINE_EDIT_CAPTURE_REQUEST") return;
+
+    handleCaptureRequest(event);
+  });
+})();
+
+
+</script></body>
+</html>
