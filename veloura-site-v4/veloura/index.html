@@ -149,6 +149,14 @@
       </div>
     </div>
 
+    <div class="studio-cta reveal">
+      <div class="studio-cta-info">
+        <span class="studio-cta-label">Your build</span>
+        <b id="studio-cta-summary">Classic Waffle Cone · Regular · Madagascar Vanilla Bean</b>
+      </div>
+      <button type="button" class="btn btn-solid" id="studio-add-cart">Add to cart · <span id="studio-cta-price">₹169</span></button>
+    </div>
+
     <div id="info-card" class="info-card" hidden>
       <button class="info-close" id="info-close" aria-label="Close">×</button>
       <p class="eyebrow" id="info-kicker">Component</p>
@@ -310,12 +318,14 @@
       </div>
       <div class="price-cards" id="price-cards">
         <div class="price-card" data-product="single">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9h12l-6 12Z"/><circle cx="12" cy="6.4" r="3.6"/></svg></div>
           <h3>Single Scoop Waffle Cone</h3>
           <p class="price">₹149</p>
           <ul><li>One generous scoop, hand-pressed cone</li><li>Choose any churn of the day</li><li>Chocolate-sealed tip, always</li></ul>
           <button class="btn btn-ghost add-btn" type="button" data-add="single">Add to cart</button>
         </div>
         <div class="price-card" data-product="double">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12h10l-5 10Z"/><circle cx="12" cy="9.6" r="3.1"/><circle cx="12" cy="6.4" r="2.6"/></svg></div>
           <h3>Double Scoop Waffle Cone</h3>
           <p class="price">₹229</p>
           <ul><li>Two scoops, two churns if you like</li><li>Warm cone, rolled rim</li><li>The everyday order</li></ul>
@@ -323,18 +333,21 @@
         </div>
         <div class="price-card is-feature" data-product="triple">
           <span class="tag">Most ordered</span>
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 12h10l-5 10Z"/><circle cx="12" cy="9.6" r="3.1"/><circle cx="12" cy="5.6" r="2.4"/></svg></div>
           <h3>Triple Stack Signature Cone</h3>
           <p class="price">₹299</p>
           <ul><li>Three scoops with the slow drizzle</li><li>Crowned with an amarena cherry</li><li>Wafer stick on the side</li></ul>
           <button class="btn btn-solid add-btn" type="button" data-add="triple">Add to cart</button>
         </div>
         <div class="price-card" data-product="pint">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 11H7Z"/><ellipse cx="12" cy="8" rx="6" ry="2"/></svg></div>
           <h3>Pint (500 ml tub)</h3>
           <p class="price">₹499</p>
           <ul><li>500 ml of any single churn</li><li>Two pressed cones in a tin</li><li>Qualifies for free Kanpur delivery</li></ul>
           <button class="btn btn-ghost add-btn" type="button" data-add="pint">Add to cart</button>
         </div>
         <div class="price-card" data-product="family">
+          <div class="pc-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 11H7Z"/><ellipse cx="12" cy="8" rx="6" ry="2"/><path d="M9 8v11M15 8v11" opacity=".5"/></svg></div>
           <h3>Family Tub (1 L)</h3>
           <p class="price">₹899</p>
           <ul><li>A full litre for the house</li><li>Four cones in a tin</li><li>Best value per scoop</li></ul>
@@ -470,6 +483,11 @@
   </section>
 </aside>
 
+<!-- ⚠️ SET THIS after you deploy the backend (server.js) — e.g. to Render.
+     Netlify only serves static files, so this tells the site where the real
+     order backend lives. Leave it as '' ONLY if server.js itself is serving
+     this page (i.e. you're not using Netlify at all). -->
+<script>window.VELOURA_API_BASE = '';</script>
 <script src="js/shop.js"></script>
 <script type="module" src="js/main.js"></script>
 <script type="module" src="js/ui.js"></script>

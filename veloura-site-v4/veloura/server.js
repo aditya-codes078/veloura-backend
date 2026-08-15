@@ -4,35 +4,36 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { DatabaseSync } = require('node:sqlite'); // built into Node 24 — no native compilation needed
-const nodemailer = require('nodemailer');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'veloura-aditya-2026';
-const OWNER_EMAIL = process.env.OWNER_EMAIL || 'adityatzzz87@gmail.com';
+const OWNER_EMAIL = process.env.OWNER_EMAIL || 'a75127130@gmail.com';
 const ROOT = __dirname;
 const DB_PATH = process.env.DB_PATH || path.join(ROOT, '..', 'veloura-data', 'data.db');
 
 /* ---------------- email transport ----------------
-   Order alerts are sent through Gmail SMTP using a Gmail "App Password"
-   (NOT your normal Gmail password — Google blocks that for SMTP).
-   Set these two environment variables before starting the server:
-     EMAIL_USER            -> your Gmail address, e.g. adityatzzz87@gmail.com
-     EMAIL_APP_PASSWORD    -> a 16-character App Password from
-                               https://myaccount.google.com/apppasswords
-                               (requires 2-Step Verification to be turned on)
-   If these are not set, the server still runs and orders still save —
-   it just skips sending the email and logs a warning, so checkout never breaks. */
-const EMAIL_USER = process.env.EMAIL_USER || '';
-const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD || '';
-const emailReady = !!(EMAIL_USER && EMAIL_APP_PASSWORD);
-const transporter = emailReady
-  ? nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: EMAIL_USER, pass: EMAIL_APP_PASSWORD },
-    })
-  : null;
+   Order alerts are sent through Resend (https://resend.com) over HTTPS.
+   We deliberately do NOT use Gmail SMTP here — most free hosts (Render,
+   Railway, etc) block outbound SMTP ports to stop spam, which makes Gmail
+   sending fail with "Connection timeout". Resend sends over plain HTTPS
+   (the same protocol as any web request), so it isn't blocked.
+
+   Setup (2 minutes, no credit card):
+     1. Sign up at https://resend.com using a75127130@gmail.com
+        (sign up with THIS exact email — see step 3 below)
+     2. Dashboard → API Keys → Create API Key → copy it
+     3. Set the environment variable RESEND_API_KEY to that key.
+   Without a verified domain, Resend only allows sending TO the email
+   address you signed up with — which is exactly OWNER_EMAIL here, so no
+   domain setup is needed at all.
+
+   If RESEND_API_KEY is not set, the server still runs and orders still
+   save — it just skips sending the email and logs a warning, so checkout
+   never breaks. */
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const emailReady = !!RESEND_API_KEY;
 if (!emailReady) {
-  console.warn('[email] EMAIL_USER / EMAIL_APP_PASSWORD not set — order alert emails are disabled.');
+  console.warn('[email] RESEND_API_KEY not set — order alert emails are disabled.');
 }
 
 /* ---------------- catalogue (server is the source of truth for prices) --------------- */
@@ -166,8 +167,8 @@ function buildEmail(order) {
 function sendOwnerAlert(order) {
   const { subject, body, html } = buildEmail(order);
 
-  if (!transporter) {
-    const msg = 'EMAIL_USER / EMAIL_APP_PASSWORD not configured on the server.';
+  if (!emailReady) {
+    const msg = 'RESEND_API_KEY not configured on the server.';
     console.error(`[email] alert skipped for ${order.order_code}: ${msg}`);
     try {
       db.prepare('UPDATE orders SET email_sent = 0, email_error = ? WHERE id = ?').run(msg, order.id);
@@ -177,19 +178,29 @@ function sendOwnerAlert(order) {
     return;
   }
 
-  transporter.sendMail(
-    {
-      from: `Veloura Ice Cream Parlour & Café <${EMAIL_USER}>`,
-      to: OWNER_EMAIL,
+  fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'Veloura <onboarding@resend.dev>',
+      to: [OWNER_EMAIL],
       subject,
       text: body,
       html,
-    },
-    (err, info) => {
-      const ok = !err;
-      const msg = err ? String(err.message || err).slice(0, 400) : null;
+    }),
+  })
+    .then(async (res) => {
+      const ok = res.ok;
+      let msg = null;
+      if (!ok) {
+        const errBody = await res.text().catch(() => '');
+        msg = `Resend ${res.status}: ${errBody}`.slice(0, 400);
+      }
       if (!ok) console.error(`[email] alert failed for ${order.order_code}: ${msg}`);
-      else console.log(`[email] alert sent for ${order.order_code} (${info.messageId})`);
+      else console.log(`[email] alert sent for ${order.order_code}`);
       try {
         db.prepare('UPDATE orders SET email_sent = ?, email_error = ? WHERE id = ?').run(
           ok ? 1 : 0,
@@ -199,8 +210,16 @@ function sendOwnerAlert(order) {
       } catch (e) {
         console.error('[email] db update failed', e.message);
       }
-    }
-  );
+    })
+    .catch((err) => {
+      const msg = String(err.message || err).slice(0, 400);
+      console.error(`[email] alert failed for ${order.order_code}: ${msg}`);
+      try {
+        db.prepare('UPDATE orders SET email_sent = 0, email_error = ? WHERE id = ?').run(msg, order.id);
+      } catch (e) {
+        console.error('[email] db update failed', e.message);
+      }
+    });
 }
 
 /* ---------------- app ---------------- */
@@ -211,13 +230,6 @@ app.use((req, res, next) => {
   res.set('Access-Control-Allow-Headers', 'Content-Type, x-admin-key');
   res.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
-
-/* Local dev/QA convenience: when the page is served straight from this server the
-   port/8000 deploy placeholder stays literal, so strip it from the path. */
-app.use((req, _res, next) => {
-  if (req.url.startsWith('/port/8000')) req.url = req.url.slice('/port/8000'.length) || '/';
   next();
 });
 
@@ -254,8 +266,10 @@ app.post('/api/orders', (req, res) => {
     if (!p || !Number.isFinite(qty) || qty < 1 || qty > 50) continue;
     const flavourId = it && it.flavourId ? String(it.flavourId) : '';
     const flavourName = cleanFlavourName(it && it.flavour);
+    const baseName = cleanFlavourName(it && it.base); // e.g. "Triple Stack Signature" from the 3D counter
     const premium = flavourId && PREMIUM_FLAVOURS.has(flavourId) ? 60 : 0;
-    const name = flavourName ? `${p.name} — ${flavourName}` : p.name;
+    const label = baseName || p.name;
+    const name = flavourName ? `${label} — ${flavourName}` : label;
     items.push({ id: p.id, name, price: p.price + premium, qty });
   }
   if (!items.length) errors.items = 'Your cart is empty.';
