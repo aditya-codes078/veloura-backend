@@ -87,3 +87,48 @@ tr[data-status="cancelled"]{opacity:.55;text-decoration-color:var(--line)}
   .dash-actions{width:100%;margin-left:0}
   .sync{order:3;width:100%}
 }
+
+/* new-order alerts */
+.alerts-wrap{background:var(--cream);border:1px solid var(--line);border-radius:var(--r-lg);padding:1.3rem 1.5rem}
+.alerts-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.alerts-row h2{font-family:var(--serif);font-weight:600;font-size:1.1rem;margin:0 0 .25rem}
+.alerts-row .fine{margin:0;max-width:52ch}
+
+/* menu & stock */
+.stock-wrap{background:var(--cream);border:1px solid var(--line);border-radius:var(--r-lg);padding:1.4rem 1.5rem}
+.stock-head h2{font-family:var(--serif);font-weight:600;font-size:1.1rem;margin:0 0 .25rem}
+.stock-head .fine{margin:0 0 1rem}
+.stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:.6rem}
+.stock-item{
+  display:flex;align-items:center;gap:.6rem;font-size:.86rem;padding:.6rem .8rem;
+  border:1px solid var(--line);border-radius:var(--r-md);background:#fff;cursor:pointer;transition:.2s;
+}
+.stock-item input{width:16px;height:16px;accent-color:var(--gold-deep);flex:none}
+.stock-item.is-out{background:#FDECE8;border-color:#F0C8BF;color:#8C2F22;text-decoration:line-through}
+
+/* row actions (KOT print, WhatsApp) */
+.o-actions{display:flex;gap:.4rem;white-space:nowrap}
+.btn-icon{
+  display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;
+  border:1px solid var(--line);background:#fff;font-size:1rem;text-decoration:none;cursor:pointer;transition:.2s;
+}
+.btn-icon:hover{border-color:var(--gold-deep);background:var(--cream-2)}
+
+/* KOT / bill print ticket — hidden on screen, shown only when printing */
+#kot-print-area{display:none}
+@media print{
+  body *{visibility:hidden}
+  #kot-print-area, #kot-print-area *{visibility:visible}
+  #kot-print-area{display:block;position:absolute;top:0;left:0;width:80mm;padding:4mm}
+  .kot-ticket{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#000}
+  .kot-brand{font-size:16px;font-weight:700;text-align:center;margin:0;letter-spacing:.1em}
+  .kot-sub{text-align:center;margin:0 0 6px;font-size:9px}
+  .kot-code{text-align:center;font-weight:700;margin:0}
+  .kot-time{text-align:center;margin:0 0 4px;font-size:9px}
+  .kot-ticket hr{border:none;border-top:1px dashed #000;margin:6px 0}
+  .kot-cust{margin:0}
+  .kot-addr,.kot-notes,.kot-pay{margin:2px 0}
+  .kot-line{display:flex;justify-content:space-between;gap:8px;margin:2px 0}
+  .kot-total{font-weight:700;font-size:13px}
+  .kot-thanks{text-align:center;margin:6px 0 0}
+}

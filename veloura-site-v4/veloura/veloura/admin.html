@@ -82,6 +82,24 @@
       <div class="kpi"><span>Total revenue</span><b id="k-tr">—</b></div>
     </section>
 
+    <section class="alerts-wrap">
+      <div class="alerts-row">
+        <div>
+          <h2>New-order alerts</h2>
+          <p class="fine">Turn this on and keep the tab open — you'll hear a chime and see a notification the moment an order comes in.</p>
+        </div>
+        <button class="btn btn-solid btn-sm" id="enable-alerts" type="button">Enable sound &amp; alerts</button>
+      </div>
+    </section>
+
+    <section class="stock-wrap">
+      <div class="stock-head">
+        <h2>Menu &amp; stock</h2>
+        <p class="fine">Switch off anything that's sold out for the day — it disappears from "Add to cart" on the live site within a few seconds.</p>
+      </div>
+      <div class="stock-grid" id="stock-grid"></div>
+    </section>
+
     <p class="api-error" id="dash-error" hidden></p>
 
     <section class="orders-wrap">
@@ -103,7 +121,7 @@
           <thead>
             <tr>
               <th>Order</th><th>Placed (IST)</th><th>Customer</th><th>Delivery address</th>
-              <th>Items</th><th class="num">Total</th><th>Payment</th><th>Alert</th><th>Status</th>
+              <th>Items</th><th class="num">Total</th><th>Payment</th><th>Alert</th><th>Status</th><th>Actions</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -113,8 +131,14 @@
   </main>
 </div>
 
+<!-- Hidden except when printing a KOT/bill (see css/admin.css @media print) -->
+<div id="kot-print-area"></div>
+
 <!-- ⚠️ SET THIS to the same backend URL used in index.html. -->
 <script>window.VELOURA_API_BASE = '';</script>
+<!-- ⚠️ SET THIS to your WhatsApp number in international format, no + or spaces
+     (e.g. 91XXXXXXXXXX for an Indian number). Leave blank to hide the button. -->
+<script>window.VELOURA_WHATSAPP_NUMBER = '919555769656';</script>
 <script src="js/admin.js"></script>
 <script data-pplx-inline-edit>
 (function () {

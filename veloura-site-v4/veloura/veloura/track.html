@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Track your order — Veloura</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='12' r='8' fill='%23F7ECD2'/%3E%3Cpath d='M8 14 L16 30 L24 14 Z' fill='%23E0A83C'/%3E%3C/svg%3E" />
+<style>
+  .track-wrap{min-height:100svh;display:grid;place-items:center;padding:2rem 1.1rem;background:var(--cream)}
+  .track-card{width:min(460px,100%);background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:2rem 1.8rem;box-shadow:var(--shadow);display:grid;gap:1rem}
+  .track-card .brand{margin-bottom:.4rem}
+  .track-title{font-size:1.9rem}
+  .track-copy{margin:0;color:var(--cocoa-soft);font-size:.92rem}
+  .track-form{display:grid;gap:.8rem;margin-top:.4rem}
+  .track-field{display:grid;gap:.3rem}
+  .track-field label{font-size:.76rem;letter-spacing:.1em;text-transform:uppercase;color:var(--cocoa-soft);font-weight:600}
+  .track-field input{font:inherit;font-size:.95rem;padding:.7rem .85rem;border:1px solid var(--line);border-radius:var(--r-sm)}
+  .track-field input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(224,168,60,.18)}
+  .track-err{margin:0;font-size:.86rem;color:#8C2F22;background:#FDECE8;border:1px solid #F0C8BF;border-radius:var(--r-sm);padding:.65rem .8rem}
+  .track-err:empty{display:none}
+  .track-result{display:none;margin-top:.6rem;border-top:1px solid var(--line);padding-top:1.2rem}
+  .track-result.is-shown{display:block}
+  .track-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;font-size:1.05rem}
+  .track-steps{list-style:none;margin:1rem 0 0;padding:0;display:grid;gap:.9rem}
+  .track-step{display:flex;align-items:center;gap:.7rem;font-size:.9rem;color:var(--cocoa-soft)}
+  .track-step b{color:var(--cocoa)}
+  .track-dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);flex:none}
+  .track-step.is-done .track-dot{background:var(--gold-deep);border-color:var(--gold-deep)}
+  .track-step.is-current .track-dot{background:var(--gold);border-color:var(--gold);box-shadow:0 0 0 4px rgba(224,168,60,.25)}
+  .track-step.is-cancelled .track-dot{background:#B3402F;border-color:#B3402F}
+  .track-total{margin-top:1rem;font-size:.92rem;color:var(--cocoa-soft)}
+  .track-total b{color:var(--cocoa)}
+</style>
+</head>
+<body>
+<div class="track-wrap">
+  <div class="track-card">
+    <a class="brand" href="index.html" aria-label="Veloura home">
+      <svg class="brand-mark" viewBox="0 0 48 64" aria-hidden="true">
+        <path d="M13.5 41 L34.5 41 L31 59 Q30.6 61 28.6 61 L19.4 61 Q17.4 61 17 59 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M16 48.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45"/>
+        <path d="M12.5 41 C12 29 16 20.5 22.5 19.5 C27 18.8 32 22 34 27.5 C35.4 31.3 35.5 36 35.5 41 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+        <path d="M16.5 32.5 Q24 29 31 32.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+        <path d="M16.5 36.5 Q24 33.5 31 36.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+        <ellipse cx="39.5" cy="10.5" rx="5.6" ry="4.4" transform="rotate(28 39.5 10.5)" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <line x1="36" y1="14" x2="29" y2="23" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-word">Veloura</span>
+    </a>
+    <h1 class="display track-title">Track your order</h1>
+    <p class="track-copy">Enter your order code and the last 4 digits of the phone number you ordered with.</p>
+
+    <form class="track-form" id="track-form">
+      <div class="track-field">
+        <label for="t-code">Order code</label>
+        <input id="t-code" type="text" placeholder="VLR-20260815-0001" autocomplete="off" required />
+      </div>
+      <div class="track-field">
+        <label for="t-phone4">Last 4 digits of phone</label>
+        <input id="t-phone4" type="text" inputmode="numeric" maxlength="4" placeholder="3210" autocomplete="off" required />
+      </div>
+      <p class="track-err" id="t-err"></p>
+      <button class="btn btn-solid" id="t-submit" type="submit">Track order</button>
+    </form>
+
+    <div class="track-result" id="t-result">
+      <p class="track-code" id="t-r-code">—</p>
+      <p class="track-total">Placed <b id="t-r-time">—</b> · Total <b id="t-r-total">—</b></p>
+      <ul class="track-steps" id="t-r-steps"></ul>
+    </div>
+  </div>
+</div>
+
+<script>window.VELOURA_API_BASE = '';</script>
+<script>
+(function () {
+  'use strict';
+  var API = window.VELOURA_API_BASE || '';
+  function $(id) { return document.getElementById(id); }
+  function inr(n) { return '₹' + Number(n || 0).toLocaleString('en-IN'); }
+
+  var FLOW = ['new', 'confirmed', 'out_for_delivery', 'delivered'];
+  var LABELS = { new: 'Order received', confirmed: 'Confirmed', out_for_delivery: 'Out for delivery', delivered: 'Delivered', cancelled: 'Cancelled' };
+
+  function renderSteps(status) {
+    var stepsEl = $('t-r-steps');
+    if (status === 'cancelled') {
+      stepsEl.innerHTML = '<li class="track-step is-cancelled"><span class="track-dot"></span><b>Order cancelled</b></li>';
+      return;
+    }
+    var idx = FLOW.indexOf(status);
+    stepsEl.innerHTML = FLOW.map(function (s, i) {
+      var cls = i < idx ? 'is-done' : i === idx ? 'is-current' : '';
+      return '<li class="track-step ' + cls + '"><span class="track-dot"></span><span>' + LABELS[s] + '</span></li>';
+    }).join('');
+  }
+
+  function track(code, phone4) {
+    $('t-err').textContent = '';
+    $('t-result').classList.remove('is-shown');
+    var btn = $('t-submit');
+    btn.disabled = true; btn.classList.add('is-loading'); btn.textContent = 'Looking…';
+    fetch(API + '/api/track/' + encodeURIComponent(code) + '?phone4=' + encodeURIComponent(phone4))
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (r) {
+        if (!r.ok) {
+          $('t-err').textContent = r.body && r.body.error === 'not_found'
+            ? "We couldn't find a matching order. Double-check the code and phone digits."
+            : 'Something went wrong. Please try again.';
+          return;
+        }
+        var o = r.body;
+        $('t-r-code').textContent = o.order_code;
+        $('t-r-time').textContent = o.created_at_ist;
+        $('t-r-total').textContent = inr(o.total);
+        renderSteps(o.status);
+        $('t-result').classList.add('is-shown');
+      })
+      .catch(function () { $('t-err').textContent = 'Network error — please check your connection and try again.'; })
+      .then(function () { btn.disabled = false; btn.classList.remove('is-loading'); btn.textContent = 'Track order'; });
+  }
+
+  $('track-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var code = $('t-code').value.trim().toUpperCase();
+    var phone4 = $('t-phone4').value.trim();
+    if (!code) { $('t-err').textContent = 'Please enter your order code.'; return; }
+    if (!/^\d{4}$/.test(phone4)) { $('t-err').textContent = 'Enter exactly 4 digits.'; return; }
+    track(code, phone4);
+  });
+
+  // Prefill from a link like track.html?code=VLR-...&phone4=1234
+  var params = new URLSearchParams(location.search);
+  if (params.get('code')) $('t-code').value = params.get('code');
+  if (params.get('phone4')) $('t-phone4').value = params.get('phone4');
+  if (params.get('code') && /^\d{4}$/.test(params.get('phone4') || '')) {
+    track(params.get('code').trim().toUpperCase(), params.get('phone4').trim());
+  }
+})();
+</script>
+</body>
+</html>

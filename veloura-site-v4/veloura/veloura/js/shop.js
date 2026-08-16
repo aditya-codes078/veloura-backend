@@ -309,6 +309,10 @@
         $('ok-total').textContent = inr(b.total);
         $('ok-pay').textContent = b.payment_method === 'COD' ? 'Cash on Delivery' : 'UPI';
         $('ok-time').textContent = b.created_at_ist;
+        var trackLink = $('track-link');
+        if (trackLink) {
+          trackLink.href = 'track.html?code=' + encodeURIComponent(b.order_code) + '&phone4=' + encodeURIComponent(data.phone.slice(-4));
+        }
         cart = {};
         renderCart();
         form.reset();

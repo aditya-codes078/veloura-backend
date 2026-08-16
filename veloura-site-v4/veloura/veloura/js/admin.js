@@ -1,8 +1,11 @@
-/* Veloura owner dashboard — key gate, summary, orders table, status updates, CSV. */
+/* Veloura owner dashboard — key gate, summary, orders table, status updates,
+   CSV, new-order sound/notification alerts, KOT printing, WhatsApp ping,
+   and menu stock toggles. */
 (function () {
   'use strict';
 
   var API = window.VELOURA_API_BASE || '';
+  var WA_NUMBER = window.VELOURA_WHATSAPP_NUMBER || '';
   var KEY_STORE = 'veloura_admin_key';
   var STATUSES = [
     ['new', 'New'],
@@ -32,6 +35,9 @@
   var adminKey = sess(KEY_STORE) || '';
   var orders = [];
   var timer = null;
+  var knownOrderIds = null; // null until first load, so we never alert on the initial page load
+  var alertsEnabled = false;
+  var audioCtx = null;
 
   function api(path, opts) {
     opts = opts || {};
@@ -41,6 +47,52 @@
       if (!res.ok) throw new Error('request_failed_' + res.status);
       return res.json();
     });
+  }
+
+  /* ---------- new-order sound + browser notification ---------- */
+  function playChime() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var now = audioCtx.currentTime;
+      [0, 0.18, 0.36].forEach(function (offset, i) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = i === 2 ? 1046.5 : 880; // a friendly two-then-high chime, not a harsh beep
+        gain.gain.setValueAtTime(0, now + offset);
+        gain.gain.linearRampToValueAtTime(0.35, now + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.32);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.34);
+      });
+    } catch (e) { /* audio not available — silently skip */ }
+  }
+
+  $('enable-alerts').addEventListener('click', function () {
+    alertsEnabled = true;
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    playChime();
+    if (window.Notification && Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
+    $('enable-alerts').textContent = 'Alerts on ✓';
+    $('enable-alerts').disabled = true;
+  });
+
+  function notifyNewOrders(newOnes) {
+    if (!alertsEnabled || !newOnes.length) return;
+    playChime();
+    if (window.Notification && Notification.permission === 'granted') {
+      var o = newOnes[0];
+      var body = newOnes.length === 1
+        ? (o.customer_name + ' · ' + inr(o.total) + ' · ' + (o.items || []).map(function (i) { return i.name; }).join(', '))
+        : newOnes.length + ' new orders just came in.';
+      try {
+        var n = new Notification('🍦 New Veloura order' + (newOnes.length > 1 ? 's' : '') + '!', { body: body });
+        n.onclick = function () { window.focus(); n.close(); };
+      } catch (e) {}
+    }
   }
 
   /* ---------- gate ---------- */
@@ -71,6 +123,7 @@
     $('gate').hidden = true;
     $('dash').hidden = false;
     load();
+    loadStock();
     if (timer) clearInterval(timer);
     timer = setInterval(load, 20000);
   }
@@ -98,6 +151,14 @@
         $('k-to').textContent = s.total_orders;
         $('k-tr').textContent = inr(s.revenue_total);
         orders = r[1].orders || [];
+
+        var currentIds = orders.map(function (o) { return o.id; });
+        if (knownOrderIds !== null) {
+          var newOnes = orders.filter(function (o) { return knownOrderIds.indexOf(o.id) === -1; });
+          if (newOnes.length) notifyNewOrders(newOnes);
+        }
+        knownOrderIds = currentIds;
+
         renderRows();
         $('dash-error').hidden = true;
         var now = new Date();
@@ -128,6 +189,13 @@
       var opts = STATUSES.map(function (s) {
         return '<option value="' + s[0] + '"' + (o.status === s[0] ? ' selected' : '') + '>' + s[1] + '</option>';
       }).join('');
+      var waLink = '';
+      if (WA_NUMBER) {
+        var itemsLine = (o.items || []).map(function (i) { return i.name + ' x' + i.qty; }).join(', ');
+        var msg = 'New order ' + o.order_code + '! Customer: ' + o.customer_name + ' (' + o.phone + '). ' +
+          'Items: ' + itemsLine + '. Total: ' + inr(o.total) + '. Address: ' + o.address + ', ' + o.city + ' — ' + o.pincode + '.';
+        waLink = 'https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(msg);
+      }
       return '<tr data-id="' + o.id + '" data-status="' + esc(o.status) + '">' +
         '<td class="o-code">' + esc(o.order_code) + '</td>' +
         '<td>' + esc(o.created_at_ist) + '</td>' +
@@ -143,6 +211,10 @@
         esc(o.email_error || (o.email_sent ? 'Alert emailed to owner' : 'Alert not sent')) + '">' +
         (o.email_sent ? 'Sent' : 'Not sent') + '</span></td>' +
         '<td><select class="status" data-id="' + o.id + '">' + opts + '</select></td>' +
+        '<td class="o-actions">' +
+        '<button type="button" class="btn-icon" data-kot="' + o.id + '" title="Print KOT / bill">🖨️</button>' +
+        (waLink ? '<a class="btn-icon" href="' + waLink + '" target="_blank" rel="noopener" title="Send via WhatsApp">💬</a>' : '') +
+        '</td>' +
         '</tr>';
     }).join('');
   }
@@ -169,6 +241,76 @@
         $('dash-error').textContent = 'Status update failed. Please try again.';
       })
       .then(function () { row.classList.remove('saving'); sel.disabled = false; });
+  });
+
+  /* ---------- KOT / bill printing ---------- */
+  $('rows').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-kot]');
+    if (!btn) return;
+    var id = btn.getAttribute('data-kot');
+    var o = orders.filter(function (x) { return String(x.id) === String(id); })[0];
+    if (o) printKot(o);
+  });
+
+  function printKot(o) {
+    var itemsHtml = (o.items || []).map(function (i) {
+      return '<div class="kot-line"><span>' + esc(i.qty) + '× ' + esc(i.name) + '</span><span>' + inr(i.price * i.qty) + '</span></div>';
+    }).join('');
+    var area = $('kot-print-area');
+    area.innerHTML =
+      '<div class="kot-ticket">' +
+      '<p class="kot-brand">VELOURA</p>' +
+      '<p class="kot-sub">Ice Cream Parlour &amp; Café · Kanpur</p>' +
+      '<p class="kot-code">' + esc(o.order_code) + '</p>' +
+      '<p class="kot-time">' + esc(o.created_at_ist) + '</p>' +
+      '<hr/>' +
+      '<p class="kot-cust"><b>' + esc(o.customer_name) + '</b><br/>' + esc(o.phone) + '</p>' +
+      '<p class="kot-addr">' + esc(o.address) + ', ' + esc(o.city) + ' — ' + esc(o.pincode) + '</p>' +
+      (o.notes ? '<p class="kot-notes">Note: ' + esc(o.notes) + '</p>' : '') +
+      '<hr/>' +
+      itemsHtml +
+      '<hr/>' +
+      '<div class="kot-line"><span>Subtotal</span><span>' + inr(o.subtotal) + '</span></div>' +
+      '<div class="kot-line"><span>Delivery</span><span>' + (o.delivery_fee === 0 ? 'Free' : inr(o.delivery_fee)) + '</span></div>' +
+      '<div class="kot-line kot-total"><span>Total</span><span>' + inr(o.total) + '</span></div>' +
+      '<p class="kot-pay">Payment: ' + esc(o.payment_method) + '</p>' +
+      '<hr/>' +
+      '<p class="kot-thanks">Thank you! 🍦</p>' +
+      '</div>';
+    window.print();
+  }
+
+  /* ---------- menu / stock toggles ---------- */
+  function loadStock() {
+    api('/api/admin/stock')
+      .then(function (r) {
+        var grid = $('stock-grid');
+        grid.innerHTML = (r.flavours || []).map(function (f) {
+          return '<label class="stock-item' + (f.available ? '' : ' is-out') + '">' +
+            '<input type="checkbox" data-flavour-stock="' + esc(f.id) + '"' + (f.available ? ' checked' : '') + ' />' +
+            '<span>' + esc(f.name) + '</span>' +
+            '</label>';
+        }).join('');
+      })
+      .catch(function () { /* stock panel is a nice-to-have — fail quietly */ });
+  }
+
+  $('stock-grid').addEventListener('change', function (e) {
+    var box = e.target.closest('[data-flavour-stock]');
+    if (!box) return;
+    var id = box.getAttribute('data-flavour-stock');
+    var label = box.closest('.stock-item');
+    label.classList.toggle('is-out', !box.checked);
+    api('/api/admin/stock/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ available: box.checked }),
+    }).catch(function () {
+      box.checked = !box.checked; // revert on failure
+      label.classList.toggle('is-out', !box.checked);
+      $('dash-error').hidden = false;
+      $('dash-error').textContent = 'Could not update stock. Please try again.';
+    });
   });
 
   /* ---------- CSV ---------- */

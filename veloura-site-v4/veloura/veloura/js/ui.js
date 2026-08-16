@@ -185,6 +185,7 @@ function syncPrices() {
     studioCtaSummary.textContent = `${v.name} · ${s.label} · ${flavour ? flavour.name : ''}`;
     studioCtaPrice.textContent = inr(p);
   }
+  applyStockState();
 }
 
 document.getElementById('studio-add-cart')?.addEventListener('click', () => {
@@ -192,6 +193,39 @@ document.getElementById('studio-add-cart')?.addEventListener('click', () => {
   const flavour = FLAVOUR_BY_ID[state.flavour];
   if (window.VelouraCart) window.VelouraCart.addBuild(v.name, state.size, state.flavour, flavour ? flavour.name : '');
 });
+
+/* ---------------- stock availability ----------------
+   Flavours the owner has marked "out of stock" for the day (admin dashboard)
+   get greyed out here so nobody orders something that isn't actually
+   available. Fetched once on load — good enough for a same-day shop. */
+let OUT_OF_STOCK = new Set();
+fetch((window.VELOURA_API_BASE || '') + '/api/stock')
+  .then((r) => (r.ok ? r.json() : { out_of_stock: [] }))
+  .then((d) => { OUT_OF_STOCK = new Set(d.out_of_stock || []); applyStockState(); })
+  .catch(() => {});
+
+function applyStockState() {
+  const studioBtn = document.getElementById('studio-add-cart');
+  const isStudioOut = OUT_OF_STOCK.has(state.flavour);
+  if (studioBtn) {
+    studioBtn.disabled = isStudioOut;
+    studioBtn.textContent = isStudioOut ? 'Sold out today' : `Add to cart · ${inr(priceFor(state.variety, state.size, state.flavour))}`;
+  }
+  document.querySelectorAll('.variety-card [data-variety-add]').forEach((btn) => {
+    btn.disabled = isStudioOut;
+    if (isStudioOut) btn.textContent = 'Sold out today';
+  });
+  document.querySelectorAll('.flavour-card').forEach((card) => {
+    const id = card.dataset.flavour;
+    const addBtn = card.querySelector('[data-flavour-add]');
+    const out = OUT_OF_STOCK.has(id);
+    card.classList.toggle('is-out', out);
+    if (addBtn) {
+      addBtn.disabled = out;
+      addBtn.textContent = out ? 'Sold out today' : `Add to cart · ${inr(priceFor('cone', 'regular', id))}`;
+    }
+  });
+}
 
 /* ---------------- flavour cabinet ---------------- */
 const grid = document.getElementById('flavour-grid');
