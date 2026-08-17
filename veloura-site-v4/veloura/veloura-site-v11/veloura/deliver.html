@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Share delivery location — Veloura</title>
+<link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/admin.css" />
+<style>
+  .dl-wrap{min-height:100svh;display:grid;place-items:center;padding:2rem 1.1rem;background:var(--cream-2)}
+  .dl-card{width:min(420px,100%);background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:2rem 1.8rem;box-shadow:var(--shadow);display:grid;gap:1rem}
+  .dl-title{font-size:1.7rem;margin:.4rem 0 0}
+  .dl-copy{margin:0;color:var(--cocoa-soft);font-size:.9rem}
+  .dl-field{display:grid;gap:.3rem;margin-top:.4rem}
+  .dl-field label{font-size:.76rem;letter-spacing:.1em;text-transform:uppercase;color:var(--cocoa-soft);font-weight:600}
+  .dl-field input{font:inherit;font-size:.95rem;padding:.7rem .85rem;border:1px solid var(--line);border-radius:var(--r-sm);text-transform:uppercase}
+  .dl-field input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(224,168,60,.18)}
+  .dl-status{margin-top:.6rem;font-size:.88rem;padding:.8rem 1rem;border-radius:var(--r-sm);background:var(--cream-2);color:var(--cocoa-soft)}
+  .dl-status.is-live{background:#E4F0E6;color:#2C5A34;font-weight:600}
+  .dl-status.is-err{background:#FDECE8;color:#8C2F22}
+  .dl-err{margin:0;font-size:.86rem;color:#8C2F22}
+  .dl-err:empty{display:none}
+</style>
+</head>
+<body class="admin-body">
+<div class="dl-wrap">
+  <div class="dl-card">
+    <span class="eyebrow">Veloura</span>
+    <h1 class="dl-title">Share delivery location</h1>
+    <p class="dl-copy">Open this on the delivery person's phone. It shares live location with the customer's tracking page — nothing else.</p>
+
+    <div class="dl-field">
+      <label for="dl-key">Admin key</label>
+      <input id="dl-key" type="password" autocomplete="off" placeholder="Ask the owner" />
+    </div>
+    <div class="dl-field">
+      <label for="dl-code">Order code</label>
+      <input id="dl-code" type="text" autocomplete="off" placeholder="VLR-20260816-0001" />
+    </div>
+
+    <p class="dl-err" id="dl-err"></p>
+    <button class="btn btn-solid" id="dl-start" type="button">Start sharing location</button>
+    <button class="btn btn-ghost" id="dl-stop" type="button" hidden>Stop sharing</button>
+    <p class="dl-status" id="dl-status" hidden></p>
+  </div>
+</div>
+
+<script>window.VELOURA_API_BASE = '';</script>
+<script>
+(function () {
+  'use strict';
+  var API = window.VELOURA_API_BASE || '';
+  function $(id) { return document.getElementById(id); }
+
+  var watchId = null;
+  var pingCount = 0;
+
+  function setStatus(text, cls) {
+    var el = $('dl-status');
+    el.textContent = text;
+    el.className = 'dl-status' + (cls ? ' ' + cls : '');
+    el.hidden = !text;
+  }
+
+  function sendLocation(code, key, lat, lng) {
+    fetch(API + '/api/orders/' + encodeURIComponent(code) + '/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': key },
+      body: JSON.stringify({ lat: lat, lng: lng }),
+    })
+      .then(function (r) {
+        if (r.status === 401) { stop(); setStatus('Admin key was rejected. Check it and start again.', 'is-err'); return; }
+        if (!r.ok) { setStatus('Could not update location just now — still trying…', 'is-err'); return; }
+        pingCount += 1;
+        setStatus('Live — sharing location (update #' + pingCount + ')', 'is-live');
+      })
+      .catch(function () { setStatus('Network hiccup — still trying…', 'is-err'); });
+  }
+
+  function start() {
+    var key = $('dl-key').value.trim();
+    var code = $('dl-code').value.trim().toUpperCase();
+    $('dl-err').textContent = '';
+    if (!key) { $('dl-err').textContent = 'Enter the admin key.'; return; }
+    if (!code) { $('dl-err').textContent = 'Enter the order code.'; return; }
+    if (!navigator.geolocation) { $('dl-err').textContent = 'This browser cannot share location.'; return; }
+
+    watchId = navigator.geolocation.watchPosition(
+      function (pos) { sendLocation(code, key, pos.coords.latitude, pos.coords.longitude); },
+      function (err) { setStatus('Location error: ' + err.message, 'is-err'); },
+      { enableHighAccuracy: true, maximumAge: 8000, timeout: 15000 }
+    );
+    $('dl-start').hidden = true;
+    $('dl-stop').hidden = false;
+    $('dl-key').disabled = true;
+    $('dl-code').disabled = true;
+    setStatus('Getting your location…', '');
+  }
+
+  function stop() {
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    $('dl-start').hidden = false;
+    $('dl-stop').hidden = true;
+    $('dl-key').disabled = false;
+    $('dl-code').disabled = false;
+    setStatus('Stopped sharing.', '');
+  }
+
+  $('dl-start').addEventListener('click', start);
+  $('dl-stop').addEventListener('click', stop);
+})();
+</script>
+</body>
+</html>
