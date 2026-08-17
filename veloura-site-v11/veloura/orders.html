@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>My orders — Veloura</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='12' r='8' fill='%23F7ECD2'/%3E%3Cpath d='M8 14 L16 30 L24 14 Z' fill='%23E0A83C'/%3E%3C/svg%3E" />
+<style>
+  .mo-wrap{min-height:100svh;padding:2rem 1.1rem;background:var(--cream)}
+  .mo-inner{max-width:640px;margin:0 auto;display:grid;gap:1.4rem}
+  .mo-card{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:1.8rem}
+  .mo-title{font-size:1.9rem;margin:.6rem 0 .3rem}
+  .mo-copy{margin:0;color:var(--cocoa-soft);font-size:.92rem}
+  .mo-form{display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap}
+  .mo-form input{flex:1;min-width:180px;font:inherit;font-size:.95rem;padding:.7rem .85rem;border:1px solid var(--line);border-radius:var(--r-sm)}
+  .mo-form input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(224,168,60,.18)}
+  .mo-err{margin:.6rem 0 0;font-size:.86rem;color:#8C2F22;background:#FDECE8;border:1px solid #F0C8BF;border-radius:var(--r-sm);padding:.65rem .8rem}
+  .mo-err:empty{display:none}
+  .mo-list{display:grid;gap:.8rem}
+  .mo-order{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:1.1rem 1.3rem}
+  .mo-order-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap}
+  .mo-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
+  .mo-status{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:.2rem .6rem;border-radius:999px;background:var(--cream-2);color:var(--cocoa)}
+  .mo-status.st-delivered{background:#E4F0E6;color:#2C5A34}
+  .mo-status.st-cancelled{background:#FDECE8;color:#8C2F22}
+  .mo-items{margin:.6rem 0 0;font-size:.86rem;color:var(--cocoa-soft)}
+  .mo-foot{display:flex;justify-content:space-between;margin-top:.6rem;font-size:.86rem;color:var(--cocoa-soft)}
+  .mo-foot b{color:var(--cocoa)}
+  .mo-empty{color:var(--cocoa-soft);text-align:center;padding:2rem 1rem}
+</style>
+</head>
+<body>
+<div class="mo-wrap">
+  <div class="mo-inner">
+    <div class="mo-card">
+      <a class="brand" href="index.html" aria-label="Veloura home">
+        <svg class="brand-mark" viewBox="0 0 48 64" aria-hidden="true">
+          <path d="M13.5 41 L34.5 41 L31 59 Q30.6 61 28.6 61 L19.4 61 Q17.4 61 17 59 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M16 48.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45"/>
+          <path d="M12.5 41 C12 29 16 20.5 22.5 19.5 C27 18.8 32 22 34 27.5 C35.4 31.3 35.5 36 35.5 41 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+          <path d="M16.5 32.5 Q24 29 31 32.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+          <path d="M16.5 36.5 Q24 33.5 31 36.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45" fill="none"/>
+          <ellipse cx="39.5" cy="10.5" rx="5.6" ry="4.4" transform="rotate(28 39.5 10.5)" fill="none" stroke="currentColor" stroke-width="2.4"/>
+          <line x1="36" y1="14" x2="29" y2="23" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+        <span class="brand-word">Veloura</span>
+      </a>
+      <h1 class="display mo-title">My orders</h1>
+      <p class="mo-copy">Enter the phone number you've ordered with to see every order you've placed.</p>
+      <form class="mo-form" id="mo-form">
+        <input id="mo-phone" type="tel" inputmode="numeric" placeholder="9876543210" maxlength="10" autocomplete="tel" required />
+        <button class="btn btn-solid" id="mo-submit" type="submit">Show my orders</button>
+      </form>
+      <p class="mo-err" id="mo-err"></p>
+    </div>
+
+    <div class="mo-list" id="mo-list"></div>
+  </div>
+</div>
+
+<script>window.VELOURA_API_BASE = '';</script>
+<script>
+(function () {
+  'use strict';
+  var API = window.VELOURA_API_BASE || '';
+  function $(id) { return document.getElementById(id); }
+  function inr(n) { return '₹' + Number(n || 0).toLocaleString('en-IN'); }
+  var STATUS_LABEL = { new: 'Order received', confirmed: 'Confirmed', out_for_delivery: 'Out for delivery', delivered: 'Delivered', cancelled: 'Cancelled' };
+
+  function renderOrders(orders) {
+    var list = $('mo-list');
+    if (!orders.length) {
+      list.innerHTML = '<div class="mo-empty">No orders found for that number yet.</div>';
+      return;
+    }
+    list.innerHTML = orders.map(function (o) {
+      var items = (o.items || []).map(function (i) { return i.qty + '× ' + i.name; }).join(', ');
+      return '<div class="mo-order">' +
+        '<div class="mo-order-head"><span class="mo-code">' + o.order_code + '</span>' +
+        '<span class="mo-status st-' + o.status + '">' + (STATUS_LABEL[o.status] || o.status) + '</span></div>' +
+        '<p class="mo-items">' + items + '</p>' +
+        '<div class="mo-foot"><span>' + o.created_at_ist + '</span><b>' + inr(o.total) + '</b></div>' +
+        '</div>';
+    }).join('');
+  }
+
+  $('mo-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var phone = $('mo-phone').value.trim();
+    $('mo-err').textContent = '';
+    if (!/^[6-9]\d{9}$/.test(phone)) { $('mo-err').textContent = 'Enter a valid 10-digit mobile number.'; return; }
+    var btn = $('mo-submit');
+    btn.disabled = true; btn.classList.add('is-loading'); btn.textContent = 'Looking…';
+    fetch(API + '/api/my-orders?phone=' + encodeURIComponent(phone))
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+      .then(function (r) {
+        if (!r.ok) { $('mo-err').textContent = (r.body && r.body.error) || 'Something went wrong.'; return; }
+        renderOrders(r.body.orders || []);
+      })
+      .catch(function () { $('mo-err').textContent = 'Network error — please check your connection and try again.'; })
+      .then(function () { btn.disabled = false; btn.classList.remove('is-loading'); btn.textContent = 'Show my orders'; });
+  });
+})();
+</script>
+</body>
+</html>
