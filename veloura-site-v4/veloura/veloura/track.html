@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='12' r='8' fill='%23F7ECD2'/%3E%3Cpath d='M8 14 L16 30 L24 14 Z' fill='%23E0A83C'/%3E%3C/svg%3E" />
 <style>
   .track-wrap{min-height:100svh;display:grid;place-items:center;padding:2rem 1.1rem;background:var(--cream)}
@@ -34,6 +35,9 @@
   .track-step.is-cancelled .track-dot{background:#B3402F;border-color:#B3402F}
   .track-total{margin-top:1rem;font-size:.92rem;color:var(--cocoa-soft)}
   .track-total b{color:var(--cocoa)}
+  #track-map{display:none;width:100%;height:220px;border-radius:var(--r-md);margin-top:1rem;border:1px solid var(--line)}
+  #track-map.is-shown{display:block}
+  .track-map-label{margin:.5rem 0 0;font-size:.78rem;color:var(--cocoa-soft)}
 </style>
 </head>
 <body>
@@ -71,10 +75,13 @@
       <p class="track-code" id="t-r-code">—</p>
       <p class="track-total">Placed <b id="t-r-time">—</b> · Total <b id="t-r-total">—</b></p>
       <ul class="track-steps" id="t-r-steps"></ul>
+      <div id="track-map"></div>
+      <p class="track-map-label" id="track-map-label" hidden>Live location — updates every few seconds while out for delivery.</p>
     </div>
   </div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>window.VELOURA_API_BASE = '';</script>
 <script>
 (function () {
@@ -85,6 +92,7 @@
 
   var FLOW = ['new', 'confirmed', 'out_for_delivery', 'delivered'];
   var LABELS = { new: 'Order received', confirmed: 'Confirmed', out_for_delivery: 'Out for delivery', delivered: 'Delivered', cancelled: 'Cancelled' };
+  var map = null, marker = null, pollTimer = null;
 
   function renderSteps(status) {
     var stepsEl = $('t-r-steps');
@@ -99,18 +107,44 @@
     }).join('');
   }
 
-  function track(code, phone4) {
-    $('t-err').textContent = '';
-    $('t-result').classList.remove('is-shown');
-    var btn = $('t-submit');
-    btn.disabled = true; btn.classList.add('is-loading'); btn.textContent = 'Looking…';
+  function updateMap(location) {
+    var mapEl = $('track-map'), label = $('track-map-label');
+    if (!location) {
+      mapEl.classList.remove('is-shown');
+      label.hidden = true;
+      return;
+    }
+    mapEl.classList.add('is-shown');
+    label.hidden = false;
+    if (!map) {
+      map = L.map('track-map').setView([location.lat, location.lng], 15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors', maxZoom: 19,
+      }).addTo(map);
+      marker = L.marker([location.lat, location.lng]).addTo(map);
+    } else {
+      map.setView([location.lat, location.lng]);
+      marker.setLatLng([location.lat, location.lng]);
+      map.invalidateSize();
+    }
+  }
+
+  function track(code, phone4, isPoll) {
+    if (!isPoll) {
+      $('t-err').textContent = '';
+      $('t-result').classList.remove('is-shown');
+      var btn = $('t-submit');
+      btn.disabled = true; btn.classList.add('is-loading'); btn.textContent = 'Looking…';
+    }
     fetch(API + '/api/track/' + encodeURIComponent(code) + '?phone4=' + encodeURIComponent(phone4))
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
       .then(function (r) {
         if (!r.ok) {
-          $('t-err').textContent = r.body && r.body.error === 'not_found'
-            ? "We couldn't find a matching order. Double-check the code and phone digits."
-            : 'Something went wrong. Please try again.';
+          if (!isPoll) {
+            $('t-err').textContent = r.body && r.body.error === 'not_found'
+              ? "We couldn't find a matching order. Double-check the code and phone digits."
+              : 'Something went wrong. Please try again.';
+          }
           return;
         }
         var o = r.body;
@@ -118,10 +152,20 @@
         $('t-r-time').textContent = o.created_at_ist;
         $('t-r-total').textContent = inr(o.total);
         renderSteps(o.status);
+        updateMap(o.location);
         $('t-result').classList.add('is-shown');
+
+        // Keep checking every 15s while the order is actively out for
+        // delivery, so the map (and status) update without a manual refresh.
+        if (pollTimer) clearTimeout(pollTimer);
+        if (o.status === 'out_for_delivery') {
+          pollTimer = setTimeout(function () { track(code, phone4, true); }, 15000);
+        }
       })
-      .catch(function () { $('t-err').textContent = 'Network error — please check your connection and try again.'; })
-      .then(function () { btn.disabled = false; btn.classList.remove('is-loading'); btn.textContent = 'Track order'; });
+      .catch(function () { if (!isPoll) $('t-err').textContent = 'Network error — please check your connection and try again.'; })
+      .then(function () {
+        if (!isPoll) { var btn = $('t-submit'); btn.disabled = false; btn.classList.remove('is-loading'); btn.textContent = 'Track order'; }
+      });
   }
 
   $('track-form').addEventListener('submit', function (e) {

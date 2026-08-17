@@ -86,7 +86,21 @@
 .tot-row b{color:var(--cocoa);font-weight:600}
 .tot-row.is-grand{margin-top:.35rem;padding-top:.55rem;border-top:1px solid var(--line);font-size:1.05rem}
 .tot-row.is-grand b{font-family:var(--serif);font-size:1.4rem;letter-spacing:-.02em}
+.tot-row.is-discount b{color:#2C7A43}
 .free-hint{margin:.5rem 0 0;font-size:.82rem;color:var(--gold-deep);font-weight:500}
+
+/* coupon */
+.coupon-row{display:flex;gap:.5rem;margin-top:.3rem}
+.coupon-row input{
+  flex:1;min-width:0;font:inherit;font-size:.88rem;padding:.6rem .8rem;
+  border:1px solid var(--line);border-radius:var(--r-sm);text-transform:uppercase;
+}
+.coupon-row input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(224,168,60,.18)}
+.btn-sm{padding:.55rem .95rem;font-size:.85rem;border-radius:var(--r-sm)}
+.coupon-msg{margin:.4rem 0 0;font-size:.82rem}
+.coupon-msg.is-ok{color:#2C7A43}
+.coupon-msg.is-err{color:#B3402F}
+.coupon-msg:empty{display:none}
 .fine{margin:0;font-size:.78rem;color:var(--cocoa-soft)}
 
 /* form */
@@ -135,6 +149,15 @@ fieldset.pay{border:none;padding:0;margin:0;display:grid;gap:.5rem}
 .success-box>div{display:flex;justify-content:space-between;gap:1rem;font-size:.9rem;color:var(--cocoa-soft)}
 .success-box b{color:var(--cocoa);font-weight:600;text-align:right}
 .success-box>div:first-child b{font-family:var(--serif);font-size:1.05rem;letter-spacing:.02em}
+
+.upi-box{
+  width:100%;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:1.2rem;display:grid;justify-items:center;gap:.6rem;margin-top:.6rem;
+}
+.upi-title{margin:0;font-weight:600;color:var(--cocoa);font-size:.94rem}
+.upi-qr{width:180px;height:180px;border-radius:var(--r-sm);border:1px solid var(--line)}
+.upi-pay-link{width:100%;justify-content:center}
+.upi-box .fine{margin:0;text-align:center}
 
 @media (max-width:1000px){
   .order-inner{grid-template-columns:1fr}

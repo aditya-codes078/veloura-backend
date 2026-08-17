@@ -95,16 +95,30 @@ tr[data-status="cancelled"]{opacity:.55;text-decoration-color:var(--line)}
 .alerts-row .fine{margin:0;max-width:52ch}
 
 /* menu & stock */
+.stock-banner{
+  background:#FFF6E0;border:1px solid #F0DDA0;color:#8C6A1C;font-weight:600;font-size:.86rem;
+  padding:.8rem 1.1rem;border-radius:var(--r-md);margin:0;
+}
 .stock-wrap{background:var(--cream);border:1px solid var(--line);border-radius:var(--r-lg);padding:1.4rem 1.5rem}
 .stock-head h2{font-family:var(--serif);font-weight:600;font-size:1.1rem;margin:0 0 .25rem}
 .stock-head .fine{margin:0 0 1rem}
-.stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:.6rem}
+.stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.6rem}
 .stock-item{
   display:flex;align-items:center;gap:.6rem;font-size:.86rem;padding:.6rem .8rem;
-  border:1px solid var(--line);border-radius:var(--r-md);background:#fff;cursor:pointer;transition:.2s;
+  border:1px solid var(--line);border-radius:var(--r-md);background:#fff;transition:.2s;
 }
-.stock-item input{width:16px;height:16px;accent-color:var(--gold-deep);flex:none}
-.stock-item.is-out{background:#FDECE8;border-color:#F0C8BF;color:#8C2F22;text-decoration:line-through}
+.stock-check{display:flex;align-items:center;gap:.5rem;flex:1;min-width:0;cursor:pointer}
+.stock-check input{width:16px;height:16px;accent-color:var(--gold-deep);flex:none}
+.stock-check span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stock-qty{
+  width:52px;flex:none;font:inherit;font-size:.82rem;text-align:center;padding:.3rem .2rem;
+  border:1px solid var(--line);border-radius:6px;background:var(--cream-2);
+}
+.stock-qty:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 2px rgba(224,168,60,.18)}
+.stock-item.is-out{background:#FDECE8;border-color:#F0C8BF;color:#8C2F22}
+.stock-item.is-out .stock-check span{text-decoration:line-through}
+.stock-item.is-low{background:#FFF6E0;border-color:#F0DDA0}
+.stock-item.is-low .stock-qty{background:#FDECC7;color:#8C6A1C;font-weight:700}
 
 /* row actions (KOT print, WhatsApp) */
 .o-actions{display:flex;gap:.4rem;white-space:nowrap}

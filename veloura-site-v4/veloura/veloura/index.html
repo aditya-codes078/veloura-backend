@@ -88,6 +88,7 @@
     <a href="#flavours">Flavours</a>
     <a href="#parlours">Parlours</a>
     <a href="#order">Order</a>
+    <a href="orders.html">My Orders</a>
   </nav>
   <button class="btn btn-solid btn-sm cart-btn" id="cart-open" type="button" aria-haspopup="dialog">
     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h2l2.2 10.2a1.6 1.6 0 0 0 1.6 1.3h7.6a1.6 1.6 0 0 0 1.6-1.2L20.5 8H7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="20" r="1.2"/><circle cx="17.5" cy="20" r="1.2"/></svg>
@@ -400,8 +401,14 @@
       <p>Your cart is empty. The Triple Stack is what most people regret not ordering.</p>
     </div>
     <ul class="cart-lines" id="cart-lines"></ul>
+    <div class="coupon-row" id="coupon-row" hidden>
+      <input type="text" id="coupon-input" placeholder="Coupon code" autocomplete="off" />
+      <button type="button" class="btn btn-ghost btn-sm" id="coupon-apply">Apply</button>
+    </div>
+    <p class="coupon-msg" id="coupon-msg"></p>
     <div class="cart-totals" id="cart-totals" hidden>
       <div class="tot-row"><span>Subtotal</span><b id="sum-subtotal">₹0</b></div>
+      <div class="tot-row is-discount" id="sum-discount-row" hidden><span id="sum-discount-label">Discount</span><b id="sum-discount">−₹0</b></div>
       <div class="tot-row"><span>Delivery</span><b id="sum-delivery">₹49</b></div>
       <div class="tot-row is-grand"><span>Total</span><b id="sum-total">₹0</b></div>
       <p class="free-hint" id="free-hint"></p>
@@ -456,6 +463,7 @@
       </div>
       <div class="cart-totals">
         <div class="tot-row"><span>Subtotal</span><b id="co-subtotal">₹0</b></div>
+        <div class="tot-row is-discount" id="co-discount-row" hidden><span id="co-discount-label">Discount</span><b id="co-discount">−₹0</b></div>
         <div class="tot-row"><span>Delivery</span><b id="co-delivery">₹49</b></div>
         <div class="tot-row is-grand"><span>Total</span><b id="co-total">₹0</b></div>
       </div>
@@ -478,6 +486,12 @@
       <div><span>Total</span><b id="ok-total">—</b></div>
       <div><span>Payment</span><b id="ok-pay">—</b></div>
       <div><span>Placed</span><b id="ok-time">—</b></div>
+    </div>
+    <div class="upi-box" id="upi-box" hidden>
+      <p class="upi-title">Scan to pay via UPI</p>
+      <img class="upi-qr" id="upi-qr" alt="UPI payment QR code" width="180" height="180" />
+      <a class="btn btn-solid upi-pay-link" id="upi-pay-link" href="#">Pay with UPI app</a>
+      <p class="fine">We'll confirm your payment on our end shortly after.</p>
     </div>
     <a class="btn btn-ghost drawer-cta" id="track-link" href="track.html" target="_blank" rel="noopener">Track this order</a>
     <button class="btn btn-solid drawer-cta" id="success-done" type="button">Keep browsing</button>

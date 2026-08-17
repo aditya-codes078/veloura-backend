@@ -7,6 +7,10 @@
   // backend separately (Render, Railway, etc). Set it once in index.html via
   // window.VELOURA_API_BASE — see the <script> tag near the top of <body>.
   var API = window.VELOURA_API_BASE || '';
+  var UPI = { id: '', name: '' };
+  fetch(API + '/api/catalog').then(function (r) { return r.json(); }).then(function (d) {
+    UPI.id = d.upi_id || ''; UPI.name = d.upi_name || '';
+  }).catch(function () {});
 
   var PRODUCTS = {
     single: { id: 'single', name: 'Single Scoop Waffle Cone', price: 149 },
@@ -28,6 +32,23 @@
   // product can be added multiple times with different flavours.
   var cart = {}; // lineKey -> { productId, flavourId, flavourName, qty }
   var PREMIUM_FLAVOURS = { dubai: 1, pistachio: 1, pistiramisu: 1, ube: 1 };
+  var appliedCoupon = null; // { code, discount, label, freeDelivery }
+
+  var CART_STORE_KEY = 'veloura_cart_v1';
+  function saveCart() {
+    try { localStorage.setItem(CART_STORE_KEY, JSON.stringify(cart)); } catch (e) { /* storage unavailable — cart just won't persist */ }
+  }
+  function loadCart() {
+    try {
+      var raw = localStorage.getItem(CART_STORE_KEY);
+      if (!raw) return;
+      var parsed = JSON.parse(raw);
+      Object.keys(parsed).forEach(function (k) {
+        var line = parsed[k];
+        if (line && PRODUCTS[line.productId] && Number(line.qty) > 0) cart[k] = line;
+      });
+    } catch (e) { /* ignore corrupt/old data */ }
+  }
 
   function lineKey(productId, flavourId, tag) {
     return [productId, flavourId || '', tag || ''].join('::');
@@ -45,7 +66,13 @@
     var subtotal = 0;
     Object.keys(cart).forEach(function (k) { subtotal += lineUnitPrice(cart[k]) * cart[k].qty; });
     var delivery = subtotal === 0 ? 0 : subtotal >= FREE_ABOVE ? 0 : DELIVERY_FEE;
-    return { subtotal: subtotal, delivery: delivery, total: subtotal + delivery };
+    var discount = 0;
+    if (appliedCoupon && subtotal > 0) {
+      discount = Math.min(appliedCoupon.discount, subtotal);
+      if (appliedCoupon.freeDelivery) delivery = 0;
+    }
+    var total = Math.max(0, subtotal + delivery - discount);
+    return { subtotal: subtotal, delivery: delivery, discount: discount, total: total };
   }
   function itemCount() {
     return Object.keys(cart).reduce(function (s, k) { return s + cart[k].qty; }, 0);
@@ -85,6 +112,7 @@
     emptyEl.hidden = has;
     totalsEl.hidden = !has;
     $('to-checkout').disabled = !has;
+    $('coupon-row').hidden = !has;
 
     $('sum-subtotal').textContent = inr(t.subtotal);
     $('sum-delivery').textContent = t.delivery === 0 && t.subtotal > 0 ? 'Free' : inr(t.delivery);
@@ -92,6 +120,19 @@
     $('co-subtotal').textContent = inr(t.subtotal);
     $('co-delivery').textContent = t.delivery === 0 && t.subtotal > 0 ? 'Free' : inr(t.delivery);
     $('co-total').textContent = inr(t.total);
+
+    var discOn = t.discount > 0;
+    $('sum-discount-row').hidden = !discOn;
+    $('co-discount-row').hidden = !discOn;
+    if (discOn) {
+      var label = appliedCoupon ? appliedCoupon.code : 'Discount';
+      $('sum-discount-label').textContent = 'Discount (' + label + ')';
+      $('co-discount-label').textContent = 'Discount (' + label + ')';
+      $('sum-discount').textContent = '−' + inr(t.discount);
+      $('co-discount').textContent = '−' + inr(t.discount);
+    }
+
+    saveCart();
 
     var hint = $('free-hint');
     if (t.subtotal > 0 && t.subtotal < FREE_ABOVE) {
@@ -200,6 +241,36 @@
     if (!Object.keys(cart).length) showStep('cart');
   });
 
+  /* ---------- coupon ---------- */
+  var couponInput = $('coupon-input'), couponMsg = $('coupon-msg'), couponApplyBtn = $('coupon-apply');
+  function setCouponMsg(text, ok) {
+    couponMsg.textContent = text;
+    couponMsg.className = 'coupon-msg' + (text ? (ok ? ' is-ok' : ' is-err') : '');
+  }
+  couponApplyBtn.addEventListener('click', function () {
+    var code = couponInput.value.trim();
+    if (!code) { setCouponMsg('Enter a code first.', false); return; }
+    var t = totals();
+    couponApplyBtn.disabled = true;
+    couponApplyBtn.textContent = '…';
+    fetch(API + '/api/coupon/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code, subtotal: t.subtotal }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (!r.ok) { setCouponMsg(r.error || 'That code is not valid.', false); appliedCoupon = null; }
+        else {
+          appliedCoupon = { code: code.toUpperCase(), discount: r.discount, label: r.label, freeDelivery: r.freeDelivery };
+          setCouponMsg('Applied: ' + r.label, true);
+        }
+        renderCart();
+      })
+      .catch(function () { setCouponMsg('Could not check that code — please try again.', false); })
+      .then(function () { couponApplyBtn.disabled = false; couponApplyBtn.textContent = 'Apply'; });
+  });
+
   $('cart-open').addEventListener('click', function () { openDrawer(Object.keys(cart).length ? 'cart' : 'cart'); });
   $('drawer-close').addEventListener('click', closeDrawer);
   scrim.addEventListener('click', closeDrawer);
@@ -279,6 +350,7 @@
         base: line.baseName || undefined,
       };
     });
+    if (appliedCoupon) data.coupon_code = appliedCoupon.code;
 
     placeBtn.disabled = true;
     placeBtn.classList.add('is-loading');
@@ -295,9 +367,18 @@
       .then(function (r) {
         if (!r.ok) {
           if (r.body && r.body.errors) {
-            Object.keys(r.body.errors).forEach(function (k) { setError(k, r.body.errors[k]); });
-            apiError.hidden = false;
-            apiError.textContent = 'Please fix the highlighted fields and try again.';
+            var errKeys = Object.keys(r.body.errors);
+            if (errKeys.length === 1 && errKeys[0] === 'coupon_code') {
+              setCouponMsg(r.body.errors.coupon_code, false);
+              showStep('cart');
+            } else {
+              errKeys.forEach(function (k) {
+                if (k === 'coupon_code') setCouponMsg(r.body.errors[k], false);
+                else setError(k, r.body.errors[k]);
+              });
+              apiError.hidden = false;
+              apiError.textContent = 'Please fix the highlighted fields and try again.';
+            }
           } else {
             apiError.hidden = false;
             apiError.textContent = 'We could not place your order just now. Please try again in a moment.';
@@ -313,7 +394,21 @@
         if (trackLink) {
           trackLink.href = 'track.html?code=' + encodeURIComponent(b.order_code) + '&phone4=' + encodeURIComponent(data.phone.slice(-4));
         }
+        var upiBox = $('upi-box');
+        if (b.payment_method === 'UPI' && UPI.id) {
+          var upiUri = 'upi://pay?pa=' + encodeURIComponent(UPI.id) + '&pn=' + encodeURIComponent(UPI.name || 'Veloura') +
+            '&am=' + encodeURIComponent(b.total) + '&cu=INR&tn=' + encodeURIComponent('Veloura order ' + b.order_code);
+          $('upi-qr').src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(upiUri);
+          $('upi-pay-link').href = upiUri;
+          upiBox.hidden = false;
+        } else {
+          upiBox.hidden = true;
+        }
         cart = {};
+        appliedCoupon = null;
+        setCouponMsg('', false);
+        couponInput.value = '';
+        saveCart();
         renderCart();
         form.reset();
         form.city.value = 'Kanpur';
@@ -330,6 +425,7 @@
       });
   });
 
+  loadCart();
   renderCart();
   window.VelouraCart = { add: addToCart, addFlavour: addFlavour, addBuild: addBuild, open: openDrawer, state: function () { return { cart: cart, totals: totals() }; } };
 })();

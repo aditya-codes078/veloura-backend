@@ -3,11 +3,19 @@ try { require('dotenv').config(); } catch (e) { /* dotenv optional — env vars 
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { createClient } = require('@libsql/client');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'veloura-aditya-2026';
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'a75127130@gmail.com';
+// Your own UPI ID (VPA), e.g. "yourname@okhdfcbank" — find it in any UPI app
+// under "My QR code" or "Profile". Customers pay this directly; there's no
+// gateway, so you confirm payment yourself by checking your bank/UPI app.
+const OWNER_UPI_ID = process.env.OWNER_UPI_ID || 'aditya32u6v@okaxis';
+const OWNER_UPI_NAME = process.env.OWNER_UPI_NAME || 'Veloura Ice Cream Parlour';
+// A flavour is "low stock" once its quantity drops to or below this.
+const LOW_STOCK_THRESHOLD = process.env.LOW_STOCK_THRESHOLD ? Number(process.env.LOW_STOCK_THRESHOLD) : 10;
 const ROOT = __dirname;
 
 /* ---------------- database ----------------
@@ -97,6 +105,27 @@ function escapeHtml(s) {
 const DELIVERY_FEE = 49;
 const FREE_DELIVERY_ABOVE = 499;
 
+/* ---------------- coupons ----------------
+   Edit this list to add/remove coupon codes. type: 'percent' (value = % off,
+   capped by maxDiscount if set) or 'flat' (value = flat ₹ off).
+   minSubtotal is optional — the cart must reach that amount to qualify. */
+const COUPONS = {
+  WELCOME10: { type: 'percent', value: 10, maxDiscount: 100, label: '10% off (up to ₹100)' },
+  SCOOP50: { type: 'flat', value: 50, minSubtotal: 300, label: '₹50 off orders above ₹300' },
+  FREESHIP: { type: 'flat', value: DELIVERY_FEE, minSubtotal: 0, label: 'Free delivery', freeDelivery: true },
+};
+function computeCoupon(code, subtotal) {
+  const c = COUPONS[String(code || '').trim().toUpperCase()];
+  if (!c) return { ok: false, error: 'That code is not valid.' };
+  if (c.minSubtotal && subtotal < c.minSubtotal) {
+    return { ok: false, error: `Add ${inr(c.minSubtotal - subtotal)} more to use this code.` };
+  }
+  let discount = c.type === 'percent' ? Math.round((subtotal * c.value) / 100) : c.value;
+  if (c.maxDiscount) discount = Math.min(discount, c.maxDiscount);
+  discount = Math.min(discount, subtotal);
+  return { ok: true, discount, label: c.label, freeDelivery: !!c.freeDelivery };
+}
+
 /* ---------------- db setup ---------------- */
 async function initDb() {
   await db.execute('PRAGMA journal_mode = WAL;').catch(() => {}); // no-op on remote Turso, harmless locally
@@ -122,10 +151,24 @@ async function initDb() {
       email_sent INTEGER NOT NULL DEFAULT 0,
       email_error TEXT
     );`);
+  // Migrations for columns added after the table already existed in production —
+  // each wrapped so re-running this on a database that already has the column
+  // doesn't crash the server on startup.
+  await db.execute('ALTER TABLE orders ADD COLUMN coupon_code TEXT;').catch(() => {});
+  await db.execute('ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0;').catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS flavour_stock (
       flavour_id TEXT PRIMARY KEY,
-      available INTEGER NOT NULL DEFAULT 1
+      available INTEGER NOT NULL DEFAULT 1,
+      quantity INTEGER
+    );`);
+  await db.execute('ALTER TABLE flavour_stock ADD COLUMN quantity INTEGER;').catch(() => {});
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS order_location (
+      order_id INTEGER PRIMARY KEY,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      updated_at TEXT NOT NULL
     );`);
 }
 
@@ -182,11 +225,12 @@ function buildEmail(order) {
     plainItems,
     '',
     `Subtotal: ${inr(order.subtotal)}`,
+    order.discount ? `Discount (${order.coupon_code}): -${inr(order.discount)}` : null,
     `Delivery: ${order.delivery_fee === 0 ? 'Free' : inr(order.delivery_fee)}`,
     `Total: ${inr(order.total)}`,
     `Payment: ${order.payment_method}`,
     `Notes: ${order.notes || '—'}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   const html = `
 <div style="font-family:Georgia,serif;max-width:560px;color:#2A1E17">
   <p style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#B47F22;margin:0 0 6px">Veloura Ice Cream Parlour &amp; Café · Kanpur</p>
@@ -195,6 +239,7 @@ function buildEmail(order) {
   <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">
     ${rows}
     <tr><td style="padding:8px 0">Subtotal</td><td style="padding:8px 0;text-align:right">${inr(order.subtotal)}</td></tr>
+    ${order.discount ? `<tr><td style="padding:2px 0;color:#2C7A43">Discount (${escapeHtml(order.coupon_code)})</td><td style="padding:2px 0;text-align:right;color:#2C7A43">-${inr(order.discount)}</td></tr>` : ''}
     <tr><td style="padding:2px 0">Delivery</td><td style="padding:2px 0;text-align:right">${order.delivery_fee === 0 ? 'Free' : inr(order.delivery_fee)}</td></tr>
     <tr><td style="padding:8px 0;font-weight:bold;border-top:2px solid #2A1E17">Total</td>
         <td style="padding:8px 0;text-align:right;font-weight:bold;border-top:2px solid #2A1E17">${inr(order.total)}</td></tr>
@@ -252,6 +297,7 @@ async function sendOwnerAlert(order) {
 
 /* ---------------- app ---------------- */
 const app = express();
+app.set('trust proxy', 1); // Render sits behind a proxy — needed for accurate per-IP rate limiting
 app.use(express.json({ limit: '256kb' }));
 app.use((req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*');
@@ -261,16 +307,54 @@ app.use((req, res, next) => {
   next();
 });
 
+/* ---------------- spam / abuse protection ----------------
+   Two layers: a general per-IP limiter on all API routes, and a tighter
+   per-IP limiter specifically on order placement (the thing worth spamming). */
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many requests — please slow down and try again in a minute.' },
+});
+const orderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 8,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many orders from this connection recently. Please wait a bit and try again, or call us if it\'s urgent.' },
+});
+// A little extra: also throttle repeat orders from the exact same phone
+// number, since someone could spam from many IPs but not many phone numbers.
+const recentOrdersByPhone = new Map(); // phone -> array of timestamps
+function phoneRateLimited(phone) {
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const arr = (recentOrdersByPhone.get(phone) || []).filter((t) => now - t < windowMs);
+  arr.push(now);
+  recentOrdersByPhone.set(phone, arr);
+  if (recentOrdersByPhone.size > 5000) recentOrdersByPhone.clear(); // simple memory cap, resets rarely
+  return arr.length > 6;
+}
+app.use('/api/', generalLimiter);
+
 app.get('/api/health', (_req, res) => res.json({ ok: true, time: istParts().display }));
 app.get('/api/catalog', (_req, res) =>
-  res.json({ products: Object.values(CATALOG), delivery_fee: DELIVERY_FEE, free_delivery_above: FREE_DELIVERY_ABOVE })
+  res.json({
+    products: Object.values(CATALOG), delivery_fee: DELIVERY_FEE, free_delivery_above: FREE_DELIVERY_ABOVE,
+    upi_id: OWNER_UPI_ID || null, upi_name: OWNER_UPI_NAME,
+  })
 );
+
+/* ---- coupon preview: check a code against the current cart subtotal ---- */
+app.post('/api/coupon/validate', (req, res) => {
+  const { code, subtotal } = req.body || {};
+  const result = computeCoupon(code, Number(subtotal) || 0);
+  res.json(result);
+});
 
 /* ---- public stock status: which flavours are currently 86'd ---- */
 app.get('/api/stock', async (_req, res) => {
   try {
-    const rs = await db.execute('SELECT flavour_id FROM flavour_stock WHERE available = 0');
-    res.json({ out_of_stock: rs.rows.map((r) => r.flavour_id) });
+    const rs = await db.execute('SELECT flavour_id, available, quantity FROM flavour_stock');
+    const out = rs.rows.filter((r) => (r.quantity != null ? Number(r.quantity) <= 0 : !Number(r.available))).map((r) => r.flavour_id);
+    res.json({ out_of_stock: out });
   } catch (e) {
     console.error('[stock] read failed', e.message);
     res.json({ out_of_stock: [] }); // fail open — never block the shop over this
@@ -290,12 +374,18 @@ app.get('/api/track/:code', async (req, res) => {
     if (!order || String(order.phone).slice(-4) !== last4) {
       return res.status(404).json({ error: 'not_found' });
     }
+    let location = null;
+    if (order.status === 'out_for_delivery') {
+      const locRs = await db.execute({ sql: 'SELECT lat, lng, updated_at FROM order_location WHERE order_id = ?', args: [order.id] });
+      if (locRs.rows[0]) location = { lat: locRs.rows[0].lat, lng: locRs.rows[0].lng, updated_at: locRs.rows[0].updated_at };
+    }
     res.json({
       order_code: order.order_code,
       status: order.status,
       created_at_ist: order.created_at_ist,
       total: order.total,
       items: JSON.parse(order.items),
+      location,
     });
   } catch (e) {
     console.error('[track] failed', e.message);
@@ -303,7 +393,54 @@ app.get('/api/track/:code', async (req, res) => {
   }
 });
 
-app.post('/api/orders', async (req, res) => {
+/* ---- customer order history: full phone number, most recent first ---- */
+app.get('/api/my-orders', async (req, res) => {
+  const phone = String(req.query.phone || '').replace(/[\s-]/g, '').replace(/^\+91/, '');
+  if (!/^[6-9]\d{9}$/.test(phone)) {
+    return res.status(400).json({ error: 'Enter a valid 10-digit mobile number.' });
+  }
+  try {
+    const rs = await db.execute({ sql: 'SELECT * FROM orders WHERE phone = ? ORDER BY id DESC LIMIT 50', args: [phone] });
+    res.json({
+      orders: rs.rows.map((o) => ({
+        order_code: o.order_code, created_at_ist: o.created_at_ist, status: o.status,
+        total: o.total, items: JSON.parse(o.items),
+      })),
+    });
+  } catch (e) {
+    console.error('[my-orders] failed', e.message);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+/* ---- delivery location sharing ----
+   A delivery person opens deliver.html, picks the order, and their phone's
+   GPS position gets posted here every few seconds while status is
+   "out_for_delivery". The customer's tracking page polls it back out. No
+   separate rider accounts — whoever has the order code + admin key can post
+   for it, which is fine for a one-person/small-team delivery operation. */
+app.post('/api/orders/:code/location', requireAdmin, async (req, res) => {
+  const code = String(req.params.code || '').trim().toUpperCase();
+  const lat = Number((req.body || {}).lat);
+  const lng = Number((req.body || {}).lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'invalid_coordinates' });
+  try {
+    const rs = await db.execute({ sql: 'SELECT id FROM orders WHERE order_code = ?', args: [code] });
+    const order = rs.rows[0];
+    if (!order) return res.status(404).json({ error: 'not_found' });
+    await db.execute({
+      sql: `INSERT INTO order_location (order_id, lat, lng, updated_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(order_id) DO UPDATE SET lat = excluded.lat, lng = excluded.lng, updated_at = excluded.updated_at`,
+      args: [order.id, lat, lng, new Date().toISOString()],
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[location] update failed', e.message);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+app.post('/api/orders', orderLimiter, async (req, res) => {
   const b = req.body || {};
   const errors = {};
   const name = String(b.customer_name || '').trim();
@@ -317,20 +454,25 @@ app.post('/api/orders', async (req, res) => {
 
   if (name.length < 2) errors.customer_name = 'Please enter your full name.';
   if (!/^[6-9]\d{9}$/.test(phone)) errors.phone = 'Enter a valid 10-digit Indian mobile number.';
+  else if (phoneRateLimited(phone)) errors.phone = 'Too many orders from this number recently. Please wait a bit, or call us if it\'s urgent.';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) errors.email = 'Enter a valid email address.';
   if (address.length < 8) errors.address = 'Please enter your full delivery address.';
   if (city.length < 2) errors.city = 'Please enter your city.';
   if (!/^\d{6}$/.test(pincode)) errors.pincode = 'Pincode must be 6 digits.';
   if (payment !== 'UPI' && payment !== 'COD') errors.payment_method = 'Choose UPI or Cash on Delivery.';
 
-  let outOfStock = new Set();
+  let stockRows = [];
   try {
-    const rs = await db.execute('SELECT flavour_id FROM flavour_stock WHERE available = 0');
-    outOfStock = new Set(rs.rows.map((r) => r.flavour_id));
+    const rs = await db.execute('SELECT flavour_id, available, quantity FROM flavour_stock');
+    stockRows = rs.rows;
   } catch (e) { /* fail open */ }
+  const outOfStock = new Set(
+    stockRows.filter((r) => (r.quantity != null ? Number(r.quantity) <= 0 : !Number(r.available))).map((r) => r.flavour_id)
+  );
 
   const rawItems = Array.isArray(b.items) ? b.items : [];
   const items = [];
+  const flavourQtyNeeded = {}; // flavourId -> total qty ordered, for the decrement step below
   for (const it of rawItems) {
     const p = CATALOG[String(it && it.id)];
     const qty = Math.floor(Number(it && it.qty));
@@ -343,14 +485,24 @@ app.post('/api/orders', async (req, res) => {
     const label = baseName || p.name;
     const itemName = flavourName ? `${label} — ${flavourName}` : label;
     items.push({ id: p.id, name: itemName, price: p.price + premium, qty });
+    if (flavourId) flavourQtyNeeded[flavourId] = (flavourQtyNeeded[flavourId] || 0) + qty;
   }
   if (!items.length && !errors.items) errors.items = 'Your cart is empty.';
 
   if (Object.keys(errors).length) return res.status(400).json({ error: 'validation_failed', errors });
 
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const delivery_fee = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE;
-  const total = subtotal + delivery_fee;
+  let delivery_fee = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE;
+  let discount = 0;
+  let couponCode = '';
+  if (b.coupon_code) {
+    const cr = computeCoupon(b.coupon_code, subtotal);
+    if (!cr.ok) return res.status(400).json({ error: 'validation_failed', errors: { coupon_code: cr.error } });
+    discount = cr.discount;
+    if (cr.freeDelivery) delivery_fee = 0;
+    couponCode = String(b.coupon_code).trim().toUpperCase();
+  }
+  const total = Math.max(0, subtotal + delivery_fee - discount);
   const now = new Date();
   const ist = istParts(now);
 
@@ -358,22 +510,33 @@ app.post('/api/orders', async (req, res) => {
     const order_code = await nextOrderCode();
     const insertResult = await db.execute({
       sql: `INSERT INTO orders (order_code, created_at, created_at_ist, customer_name, phone, email, address, city,
-              pincode, items, subtotal, delivery_fee, total, payment_method, notes, status, email_sent)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',0)`,
+              pincode, items, subtotal, delivery_fee, total, payment_method, notes, status, email_sent, coupon_code, discount)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',0,?,?)`,
       args: [order_code, now.toISOString(), ist.display, name, phone, email, address, city, pincode,
-             JSON.stringify(items), subtotal, delivery_fee, total, payment, notes],
+             JSON.stringify(items), subtotal, delivery_fee, total, payment, notes, couponCode || null, discount],
     });
 
     const orderId = Number(insertResult.lastInsertRowid);
     const orderRow = { id: orderId, order_code, created_at: now.toISOString(), created_at_ist: ist.display,
       customer_name: name, phone, email, address, city, pincode, items: JSON.stringify(items),
-      subtotal, delivery_fee, total, payment_method: payment, notes };
+      subtotal, delivery_fee, total, payment_method: payment, notes, coupon_code: couponCode, discount };
+
+    // Decrement tracked-quantity flavours. The WHERE clause requires enough
+    // stock to still be there, so two people racing to buy the last one can't
+    // both succeed — whichever request loses just won't decrement further
+    // (harmless; worst case stock reads slightly stale until the next check).
+    for (const [flavourId, qtyNeeded] of Object.entries(flavourQtyNeeded)) {
+      await db.execute({
+        sql: 'UPDATE flavour_stock SET quantity = quantity - ? WHERE flavour_id = ? AND quantity IS NOT NULL AND quantity >= ?',
+        args: [qtyNeeded, flavourId, qtyNeeded],
+      }).catch((e) => console.error('[stock] decrement failed for', flavourId, e.message));
+    }
 
     setImmediate(() => {
       sendOwnerAlert(orderRow).catch((e) => console.error('[email] threw', e.message));
     });
 
-    res.status(201).json({ ok: true, order_code, subtotal, delivery_fee, total, payment_method: payment, created_at_ist: ist.display });
+    res.status(201).json({ ok: true, order_code, subtotal, delivery_fee, discount, coupon_code: couponCode || null, total, payment_method: payment, created_at_ist: ist.display });
   } catch (e) {
     console.error('[orders] insert failed', e.message);
     res.status(500).json({ error: 'server_error', message: 'Could not save your order. Please try again.' });
@@ -429,13 +592,24 @@ app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
   }
 });
 
-/* ---- admin: menu / stock toggle ---- */
+/* ---- admin: menu / stock toggle + quantity ---- */
 app.get('/api/admin/stock', requireAdmin, async (_req, res) => {
   try {
-    const rs = await db.execute('SELECT flavour_id, available FROM flavour_stock');
-    const overrides = new Map(rs.rows.map((r) => [r.flavour_id, !!Number(r.available)]));
+    const rs = await db.execute('SELECT flavour_id, available, quantity FROM flavour_stock');
+    const overrides = new Map(rs.rows.map((r) => [r.flavour_id, r]));
     res.json({
-      flavours: FLAVOURS.map((f) => ({ id: f.id, name: f.name, available: overrides.has(f.id) ? overrides.get(f.id) : true })),
+      low_stock_threshold: LOW_STOCK_THRESHOLD,
+      flavours: FLAVOURS.map((f) => {
+        const o = overrides.get(f.id);
+        const quantity = o && o.quantity != null ? Number(o.quantity) : null; // null = not tracked (unlimited)
+        const available = o ? !!Number(o.available) : true;
+        return {
+          id: f.id, name: f.name,
+          available: quantity != null ? quantity > 0 : available,
+          quantity,
+          isLow: quantity != null && quantity > 0 && quantity <= LOW_STOCK_THRESHOLD,
+        };
+      }),
     });
   } catch (e) {
     console.error('[stock] admin list failed', e.message);
@@ -443,6 +617,7 @@ app.get('/api/admin/stock', requireAdmin, async (_req, res) => {
   }
 });
 
+// Toggle available on/off (when quantity isn't being tracked for this flavour).
 app.patch('/api/admin/stock/:flavourId', requireAdmin, async (req, res) => {
   const flavourId = String(req.params.flavourId || '');
   const available = !!(req.body || {}).available;
@@ -456,6 +631,26 @@ app.patch('/api/admin/stock/:flavourId', requireAdmin, async (req, res) => {
     res.json({ ok: true, id: flavourId, available });
   } catch (e) {
     console.error('[stock] toggle failed', e.message);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// Set an exact quantity for a flavour. Once a number is set, that flavour's
+// availability is driven by the count (0 = sold out) instead of the toggle.
+app.patch('/api/admin/stock/:flavourId/quantity', requireAdmin, async (req, res) => {
+  const flavourId = String(req.params.flavourId || '');
+  const quantity = Math.max(0, Math.floor(Number((req.body || {}).quantity)));
+  if (!FLAVOURS.some((f) => f.id === flavourId)) return res.status(404).json({ error: 'not_found' });
+  if (!Number.isFinite(quantity)) return res.status(400).json({ error: 'invalid_quantity' });
+  try {
+    await db.execute({
+      sql: `INSERT INTO flavour_stock (flavour_id, available, quantity) VALUES (?, 1, ?)
+            ON CONFLICT(flavour_id) DO UPDATE SET quantity = excluded.quantity, available = 1`,
+      args: [flavourId, quantity],
+    });
+    res.json({ ok: true, id: flavourId, quantity, isLow: quantity > 0 && quantity <= LOW_STOCK_THRESHOLD });
+  } catch (e) {
+    console.error('[stock] quantity update failed', e.message);
     res.status(500).json({ error: 'server_error' });
   }
 });

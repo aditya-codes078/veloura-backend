@@ -69,15 +69,40 @@
     } catch (e) { /* audio not available — silently skip */ }
   }
 
+  var ALERTS_KEY = 'veloura_alerts_enabled';
+
+  function setAlertsUI(on) {
+    alertsEnabled = on;
+    var btn = $('enable-alerts');
+    btn.textContent = on ? 'Alerts on ✓' : 'Enable sound & alerts';
+    btn.disabled = on;
+  }
+
   $('enable-alerts').addEventListener('click', function () {
-    alertsEnabled = true;
+    try { localStorage.setItem(ALERTS_KEY, '1'); } catch (e) { /* storage unavailable — preference just won't persist */ }
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
     playChime();
     if (window.Notification && Notification.permission !== 'granted') {
       Notification.requestPermission();
     }
-    $('enable-alerts').textContent = 'Alerts on ✓';
-    $('enable-alerts').disabled = true;
+    setAlertsUI(true);
+  });
+
+  // Remembered from a previous visit — restore without needing another click.
+  // (Browser notification permission itself is already remembered by the
+  // browser; this just restores whether the owner had turned the feature on.)
+  try {
+    if (localStorage.getItem(ALERTS_KEY) === '1' && window.Notification && Notification.permission === 'granted') {
+      setAlertsUI(true);
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    }
+  } catch (e) {}
+
+  // Some browsers start a freshly-created AudioContext "suspended" until the
+  // page has real user interaction — this quietly unlocks it on the first
+  // click/tap anywhere, so the chime is ready by the time an order comes in.
+  document.addEventListener('click', function () {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(function () {});
   });
 
   function notifyNewOrders(newOnes) {
@@ -286,31 +311,63 @@
       .then(function (r) {
         var grid = $('stock-grid');
         grid.innerHTML = (r.flavours || []).map(function (f) {
-          return '<label class="stock-item' + (f.available ? '' : ' is-out') + '">' +
-            '<input type="checkbox" data-flavour-stock="' + esc(f.id) + '"' + (f.available ? ' checked' : '') + ' />' +
+          var cls = 'stock-item' + (!f.available ? ' is-out' : f.isLow ? ' is-low' : '');
+          return '<div class="' + cls + '">' +
+            '<label class="stock-check">' +
+            '<input type="checkbox" data-flavour-stock="' + esc(f.id) + '"' + (f.available ? ' checked' : '') + (f.quantity != null ? ' disabled' : '') + ' />' +
             '<span>' + esc(f.name) + '</span>' +
-            '</label>';
+            '</label>' +
+            '<input type="number" min="0" class="stock-qty" data-flavour-qty="' + esc(f.id) + '" placeholder="∞" value="' + (f.quantity != null ? f.quantity : '') + '" title="Set a number to track exact stock; leave blank for unlimited" />' +
+            '</div>';
         }).join('');
+
+        var out = (r.flavours || []).filter(function (f) { return !f.available; });
+        var low = (r.flavours || []).filter(function (f) { return f.available && f.isLow; });
+        var banner = $('stock-banner');
+        if (out.length || low.length) {
+          var parts = [];
+          if (out.length) parts.push(out.length + ' sold out (' + out.map(function (f) { return f.name; }).join(', ') + ')');
+          if (low.length) parts.push(low.length + ' running low (' + low.map(function (f) { return f.name; }).join(', ') + ')');
+          banner.textContent = '⚠️ ' + parts.join(' · ');
+          banner.hidden = false;
+        } else {
+          banner.hidden = true;
+        }
       })
       .catch(function () { /* stock panel is a nice-to-have — fail quietly */ });
   }
 
   $('stock-grid').addEventListener('change', function (e) {
     var box = e.target.closest('[data-flavour-stock]');
-    if (!box) return;
-    var id = box.getAttribute('data-flavour-stock');
-    var label = box.closest('.stock-item');
-    label.classList.toggle('is-out', !box.checked);
-    api('/api/admin/stock/' + id, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ available: box.checked }),
-    }).catch(function () {
-      box.checked = !box.checked; // revert on failure
-      label.classList.toggle('is-out', !box.checked);
-      $('dash-error').hidden = false;
-      $('dash-error').textContent = 'Could not update stock. Please try again.';
-    });
+    var qtyBox = e.target.closest('[data-flavour-qty]');
+    if (box) {
+      var id = box.getAttribute('data-flavour-stock');
+      var wasChecked = box.checked;
+      api('/api/admin/stock/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ available: wasChecked }),
+      }).then(loadStock).catch(function () {
+        $('dash-error').hidden = false;
+        $('dash-error').textContent = 'Could not update stock. Please try again.';
+        loadStock();
+      });
+    }
+    if (qtyBox) {
+      var qid = qtyBox.getAttribute('data-flavour-qty');
+      var raw = qtyBox.value.trim();
+      if (raw === '') { loadStock(); return; } // cleared — just re-sync (no "unset tracking" endpoint, keep simple)
+      var qty = Math.max(0, Math.floor(Number(raw)));
+      api('/api/admin/stock/' + qid + '/quantity', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: qty }),
+      }).then(loadStock).catch(function () {
+        $('dash-error').hidden = false;
+        $('dash-error').textContent = 'Could not update quantity. Please try again.';
+        loadStock();
+      });
+    }
   });
 
   /* ---------- CSV ---------- */
