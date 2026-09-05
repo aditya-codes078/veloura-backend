@@ -334,13 +334,18 @@ function phoneRateLimited(phone) {
 }
 app.use('/api/', generalLimiter);
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, time: istParts().display }));
-app.get('/api/catalog', (_req, res) =>
-  res.json({
-    products: Object.values(CATALOG), delivery_fee: DELIVERY_FEE, free_delivery_above: FREE_DELIVERY_ABOVE,
-    upi_id: OWNER_UPI_ID || null, upi_name: OWNER_UPI_NAME,
-  })
-);
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 60,
+  standardHeaders: true, legacyHeaders: false,
+  validate: false,
+  message: { error: 'Too many requests — please slow down and try again in a minute.' },
+});
+const orderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 8,
+  standardHeaders: true, legacyHeaders: false,
+  validate: false,
+  message: { error: 'Too many orders from this connection recently. Please wait a bit and try again, or call us if it\'s urgent.' },
+});
 
 /* ---- coupon preview: check a code against the current cart subtotal ---- */
 app.post('/api/coupon/validate', (req, res) => {
