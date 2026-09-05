@@ -312,12 +312,12 @@ app.use((req, res, next) => {
    per-IP limiter specifically on order placement (the thing worth spamming). */
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, max: 60,
-  standardHeaders: true, legacyHeaders: false,
+  standardHeaders: true, legacyHeaders: false,validate: false,
   message: { error: 'Too many requests — please slow down and try again in a minute.' },
 });
 const orderLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 8,
-  standardHeaders: true, legacyHeaders: false,
+ standardHeaders: true, legacyHeaders: false, validate: false,
   message: { error: 'Too many orders from this connection recently. Please wait a bit and try again, or call us if it\'s urgent.' },
 });
 // A little extra: also throttle repeat orders from the exact same phone
@@ -333,20 +333,6 @@ function phoneRateLimited(phone) {
   return arr.length > 6;
 }
 app.use('/api/', generalLimiter);
-
-const generalLimiter = rateLimit({
-  windowMs: 60 * 1000, max: 60,
-  standardHeaders: true, legacyHeaders: false,
-  validate: false,
-  message: { error: 'Too many requests — please slow down and try again in a minute.' },
-});
-const orderLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 8,
-  standardHeaders: true, legacyHeaders: false,
-  validate: false,
-  message: { error: 'Too many orders from this connection recently. Please wait a bit and try again, or call us if it\'s urgent.' },
-});
-
 /* ---- coupon preview: check a code against the current cart subtotal ---- */
 app.post('/api/coupon/validate', (req, res) => {
   const { code, subtotal } = req.body || {};
