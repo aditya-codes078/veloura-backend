@@ -50,16 +50,13 @@ const db = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
 
    Setup (2 minutes, no credit card):
      1. Sign up at https://resend.com using a75127130@gmail.com
-        (sign up with THIS exact email)
      2. Dashboard → API Keys → Create API Key → copy it
      3. Set the environment variable RESEND_API_KEY to that key.
    Without a verified domain, Resend only allows sending TO the email
-   address you signed up with — which is exactly OWNER_EMAIL here, so no
-   domain setup is needed at all.
+   address you signed up with — which is exactly OWNER_EMAIL here.
 
    If RESEND_API_KEY is not set, the server still runs and orders still
-   save — it just skips sending the email and logs a warning, so checkout
-   never breaks. */
+   save — it just skips sending the email and logs a warning. */
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const emailReady = !!RESEND_API_KEY;
 if (!emailReady) {
@@ -128,7 +125,7 @@ function computeCoupon(code, subtotal) {
 
 /* ---------------- db setup ---------------- */
 async function initDb() {
-  await db.execute('PRAGMA journal_mode = WAL;').catch(() => {}); // no-op on remote Turso, harmless locally
+  await db.execute('PRAGMA journal_mode = WAL;').catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,9 +148,7 @@ async function initDb() {
       email_sent INTEGER NOT NULL DEFAULT 0,
       email_error TEXT
     );`);
-  // Migrations for columns added after the table already existed in production —
-  // each wrapped so re-running this on a database that already has the column
-  // doesn't crash the server on startup.
+  // Migrations for columns added after the table already existed in production.
   await db.execute('ALTER TABLE orders ADD COLUMN coupon_code TEXT;').catch(() => {});
   await db.execute('ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0;').catch(() => {});
   await db.execute(`
@@ -312,16 +307,18 @@ app.use((req, res, next) => {
    per-IP limiter specifically on order placement (the thing worth spamming). */
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, max: 60,
-  standardHeaders: true, legacyHeaders: false,validate: false,
+  standardHeaders: true, legacyHeaders: false,
+  validate: false,
   message: { error: 'Too many requests — please slow down and try again in a minute.' },
 });
 const orderLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 8,
- standardHeaders: true, legacyHeaders: false, validate: false,
+  standardHeaders: true, legacyHeaders: false,
+  validate: false,
   message: { error: 'Too many orders from this connection recently. Please wait a bit and try again, or call us if it\'s urgent.' },
 });
-// A little extra: also throttle repeat orders from the exact same phone
-// number, since someone could spam from many IPs but not many phone numbers.
+// Also throttle repeat orders from the exact same phone number, since someone
+// could spam from many IPs but not many phone numbers.
 const recentOrdersByPhone = new Map(); // phone -> array of timestamps
 function phoneRateLimited(phone) {
   const now = Date.now();
@@ -329,10 +326,21 @@ function phoneRateLimited(phone) {
   const arr = (recentOrdersByPhone.get(phone) || []).filter((t) => now - t < windowMs);
   arr.push(now);
   recentOrdersByPhone.set(phone, arr);
-  if (recentOrdersByPhone.size > 5000) recentOrdersByPhone.clear(); // simple memory cap, resets rarely
+  if (recentOrdersByPhone.size > 5000) recentOrdersByPhone.clear();
   return arr.length > 6;
 }
 app.use('/api/', generalLimiter);
+
+/* ---------------- routes ---------------- */
+app.get('/api/health', (_req, res) => res.json({ ok: true, time: istParts().display }));
+
+app.get('/api/catalog', (_req, res) =>
+  res.json({
+    products: Object.values(CATALOG), delivery_fee: DELIVERY_FEE, free_delivery_above: FREE_DELIVERY_ABOVE,
+    upi_id: OWNER_UPI_ID || null, upi_name: OWNER_UPI_NAME,
+  })
+);
+
 /* ---- coupon preview: check a code against the current cart subtotal ---- */
 app.post('/api/coupon/validate', (req, res) => {
   const { code, subtotal } = req.body || {};
@@ -348,7 +356,7 @@ app.get('/api/stock', async (_req, res) => {
     res.json({ out_of_stock: out });
   } catch (e) {
     console.error('[stock] read failed', e.message);
-    res.json({ out_of_stock: [] }); // fail open — never block the shop over this
+    res.json({ out_of_stock: [] });
   }
 });
 
@@ -407,9 +415,7 @@ app.get('/api/my-orders', async (req, res) => {
 /* ---- delivery location sharing ----
    A delivery person opens deliver.html, picks the order, and their phone's
    GPS position gets posted here every few seconds while status is
-   "out_for_delivery". The customer's tracking page polls it back out. No
-   separate rider accounts — whoever has the order code + admin key can post
-   for it, which is fine for a one-person/small-team delivery operation. */
+   "out_for_delivery". The customer's tracking page polls it back out. */
 app.post('/api/orders/:code/location', requireAdmin, async (req, res) => {
   const code = String(req.params.code || '').trim().toUpperCase();
   const lat = Number((req.body || {}).lat);
@@ -463,7 +469,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
 
   const rawItems = Array.isArray(b.items) ? b.items : [];
   const items = [];
-  const flavourQtyNeeded = {}; // flavourId -> total qty ordered, for the decrement step below
+  const flavourQtyNeeded = {};
   for (const it of rawItems) {
     const p = CATALOG[String(it && it.id)];
     const qty = Math.floor(Number(it && it.qty));
@@ -471,7 +477,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     const flavourId = it && it.flavourId ? String(it.flavourId) : '';
     if (flavourId && outOfStock.has(flavourId)) { errors.items = 'One of the flavours in your cart just sold out. Please remove it and try again.'; continue; }
     const flavourName = cleanFlavourName(it && it.flavour);
-    const baseName = cleanFlavourName(it && it.base); // e.g. "Triple Stack Signature" from the 3D counter
+    const baseName = cleanFlavourName(it && it.base);
     const premium = flavourId && PREMIUM_FLAVOURS.has(flavourId) ? 60 : 0;
     const label = baseName || p.name;
     const itemName = flavourName ? `${label} — ${flavourName}` : label;
@@ -512,10 +518,6 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       customer_name: name, phone, email, address, city, pincode, items: JSON.stringify(items),
       subtotal, delivery_fee, total, payment_method: payment, notes, coupon_code: couponCode, discount };
 
-    // Decrement tracked-quantity flavours. The WHERE clause requires enough
-    // stock to still be there, so two people racing to buy the last one can't
-    // both succeed — whichever request loses just won't decrement further
-    // (harmless; worst case stock reads slightly stale until the next check).
     for (const [flavourId, qtyNeeded] of Object.entries(flavourQtyNeeded)) {
       await db.execute({
         sql: 'UPDATE flavour_stock SET quantity = quantity - ? WHERE flavour_id = ? AND quantity IS NOT NULL AND quantity >= ?',
@@ -592,7 +594,7 @@ app.get('/api/admin/stock', requireAdmin, async (_req, res) => {
       low_stock_threshold: LOW_STOCK_THRESHOLD,
       flavours: FLAVOURS.map((f) => {
         const o = overrides.get(f.id);
-        const quantity = o && o.quantity != null ? Number(o.quantity) : null; // null = not tracked (unlimited)
+        const quantity = o && o.quantity != null ? Number(o.quantity) : null;
         const available = o ? !!Number(o.available) : true;
         return {
           id: f.id, name: f.name,
@@ -608,7 +610,6 @@ app.get('/api/admin/stock', requireAdmin, async (_req, res) => {
   }
 });
 
-// Toggle available on/off (when quantity isn't being tracked for this flavour).
 app.patch('/api/admin/stock/:flavourId', requireAdmin, async (req, res) => {
   const flavourId = String(req.params.flavourId || '');
   const available = !!(req.body || {}).available;
@@ -626,8 +627,6 @@ app.patch('/api/admin/stock/:flavourId', requireAdmin, async (req, res) => {
   }
 });
 
-// Set an exact quantity for a flavour. Once a number is set, that flavour's
-// availability is driven by the count (0 = sold out) instead of the toggle.
 app.patch('/api/admin/stock/:flavourId/quantity', requireAdmin, async (req, res) => {
   const flavourId = String(req.params.flavourId || '');
   const quantity = Math.max(0, Math.floor(Number((req.body || {}).quantity)));
@@ -647,7 +646,6 @@ app.patch('/api/admin/stock/:flavourId/quantity', requireAdmin, async (req, res)
 });
 
 /* static files so the sandbox can also serve the site directly */
-// never serve the server source over HTTP
 app.use((req, res, next) => {
   if (/^\/(server\.js|package(-lock)?\.json|\.env)/i.test(req.path)) return res.status(404).end();
   next();
