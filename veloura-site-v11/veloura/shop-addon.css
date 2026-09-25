@@ -1,0 +1,6 @@
+/* --- Add-ons for dine-in mode + GST line (append to your existing css/shop.css) --- */
+.dinein-banner{
+  background:#FFF6E0;border:1px solid #F0DDA0;color:#8C6A1C;font-weight:600;font-size:.86rem;
+  padding:.7rem 1rem;border-radius:10px;margin:0 0 1rem;
+}
+.tot-row.is-gst b{color:var(--cocoa-soft,#6B564A);font-weight:500}
