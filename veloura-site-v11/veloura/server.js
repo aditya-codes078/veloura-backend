@@ -7,7 +7,14 @@ const rateLimit = require('express-rate-limit');
 const { createClient } = require('@libsql/client');
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
-const ADMIN_KEY = process.env.ADMIN_KEY || 'veloura-aditya-2026';
+// Role-based dashboard access. MANAGER sees/does everything (same as the old
+// single ADMIN_KEY — kept as a fallback so existing setups don't break).
+// KITCHEN only sees/updates orders being prepared; DELIVERY only sees/updates
+// orders that are out for delivery, and can post live GPS location.
+const MANAGER_KEY = process.env.MANAGER_KEY || process.env.ADMIN_KEY || 'veloura-aditya-2026';
+const KITCHEN_KEY = process.env.KITCHEN_KEY || 'veloura-kitchen-2026';
+const DELIVERY_KEY = process.env.DELIVERY_KEY || 'veloura-delivery-2026';
+const ROLE_BY_KEY = { [MANAGER_KEY]: 'manager', [KITCHEN_KEY]: 'kitchen', [DELIVERY_KEY]: 'delivery' };
 const OWNER_EMAIL = process.env.OWNER_EMAIL || 'a75127130@gmail.com';
 // Your own UPI ID (VPA), e.g. "yourname@okhdfcbank" — find it in any UPI app
 // under "My QR code" or "Profile". Customers pay this directly; there's no
@@ -16,6 +23,10 @@ const OWNER_UPI_ID = process.env.OWNER_UPI_ID || 'aditya32u6v@okaxis';
 const OWNER_UPI_NAME = process.env.OWNER_UPI_NAME || 'Veloura Ice Cream Parlour';
 // A flavour is "low stock" once its quantity drops to or below this.
 const LOW_STOCK_THRESHOLD = process.env.LOW_STOCK_THRESHOLD ? Number(process.env.LOW_STOCK_THRESHOLD) : 10;
+// GST/tax — shown as a separate line and added to the total. Set
+// ENABLE_GST=false to switch it off entirely.
+const ENABLE_GST = process.env.ENABLE_GST !== 'false';
+const GST_PERCENT = process.env.GST_PERCENT ? Number(process.env.GST_PERCENT) : 5;
 const ROOT = __dirname;
 
 /* ---------------- database ----------------
@@ -151,6 +162,8 @@ async function initDb() {
   // Migrations for columns added after the table already existed in production.
   await db.execute('ALTER TABLE orders ADD COLUMN coupon_code TEXT;').catch(() => {});
   await db.execute('ALTER TABLE orders ADD COLUMN discount INTEGER NOT NULL DEFAULT 0;').catch(() => {});
+  await db.execute('ALTER TABLE orders ADD COLUMN table_number TEXT;').catch(() => {});
+  await db.execute('ALTER TABLE orders ADD COLUMN gst INTEGER NOT NULL DEFAULT 0;').catch(() => {});
   await db.execute(`
     CREATE TABLE IF NOT EXISTS flavour_stock (
       flavour_id TEXT PRIMARY KEY,
@@ -189,15 +202,22 @@ async function nextOrderCode() {
   return `VLR-${ymd}-${String(c + 1).padStart(4, '0')}`;
 }
 
-function requireAdmin(req, res, next) {
-  const key = req.get('x-admin-key');
-  if (!key || key !== ADMIN_KEY) return res.status(401).json({ error: 'Invalid admin key' });
-  next();
+function requireRole(...allowed) {
+  return (req, res, next) => {
+    const key = req.get('x-admin-key');
+    const role = key && ROLE_BY_KEY[key];
+    if (!role) return res.status(401).json({ error: 'Invalid admin key' });
+    if (allowed.length && !allowed.includes(role)) return res.status(403).json({ error: 'forbidden', message: `This key is for the ${role} view, not this section.` });
+    req.role = role;
+    next();
+  };
 }
+const requireAdmin = requireRole(); // any valid role — used where all three should get through
 
 /* ---------------- email alert (fire and forget) ---------------- */
 function buildEmail(order) {
   const items = JSON.parse(order.items);
+  const isDineIn = !!order.table_number;
   const rows = items
     .map(
       (i) =>
@@ -206,21 +226,28 @@ function buildEmail(order) {
     )
     .join('');
   const plainItems = items.map((i) => `- ${i.name} x${i.qty} — ${inr(i.price * i.qty)}`).join('\n');
-  const subject = `🍦 New Veloura order ${order.order_code} — ${inr(order.total)}`;
+  const mapsUrl = !isDineIn
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${order.address}, ${order.city} ${order.pincode}`)}`
+    : null;
+  const subject = isDineIn
+    ? `🍽️ Table ${order.table_number} — new Veloura order ${order.order_code} — ${inr(order.total)}`
+    : `🍦 New Veloura order ${order.order_code} — ${inr(order.total)}`;
   const body = [
-    `New Veloura order ${order.order_code}`,
+    isDineIn ? `New Veloura DINE-IN order ${order.order_code} — Table ${order.table_number}` : `New Veloura order ${order.order_code}`,
     `Placed: ${order.created_at_ist}`,
     '',
     `Customer: ${order.customer_name}`,
     `Phone: ${order.phone}`,
     `Email: ${order.email}`,
-    `Address: ${order.address}, ${order.city} — ${order.pincode}`,
+    isDineIn ? `Table: ${order.table_number}` : `Address: ${order.address}, ${order.city} — ${order.pincode}`,
+    !isDineIn && mapsUrl ? `Directions: ${mapsUrl}` : null,
     '',
     'Items:',
     plainItems,
     '',
     `Subtotal: ${inr(order.subtotal)}`,
     order.discount ? `Discount (${order.coupon_code}): -${inr(order.discount)}` : null,
+    order.gst ? `GST (${GST_PERCENT}%): ${inr(order.gst)}` : null,
     `Delivery: ${order.delivery_fee === 0 ? 'Free' : inr(order.delivery_fee)}`,
     `Total: ${inr(order.total)}`,
     `Payment: ${order.payment_method}`,
@@ -229,12 +256,13 @@ function buildEmail(order) {
   const html = `
 <div style="font-family:Georgia,serif;max-width:560px;color:#2A1E17">
   <p style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#B47F22;margin:0 0 6px">Veloura Ice Cream Parlour &amp; Café · Kanpur</p>
-  <h2 style="margin:0 0 4px;font-size:22px">New order ${order.order_code}</h2>
+  <h2 style="margin:0 0 4px;font-size:22px">${isDineIn ? `Table ${escapeHtml(order.table_number)} — order ${order.order_code}` : `New order ${order.order_code}`}</h2>
   <p style="margin:0 0 18px;color:#6B564A;font-size:13px">${order.created_at_ist}</p>
   <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">
     ${rows}
     <tr><td style="padding:8px 0">Subtotal</td><td style="padding:8px 0;text-align:right">${inr(order.subtotal)}</td></tr>
     ${order.discount ? `<tr><td style="padding:2px 0;color:#2C7A43">Discount (${escapeHtml(order.coupon_code)})</td><td style="padding:2px 0;text-align:right;color:#2C7A43">-${inr(order.discount)}</td></tr>` : ''}
+    ${order.gst ? `<tr><td style="padding:2px 0">GST (${GST_PERCENT}%)</td><td style="padding:2px 0;text-align:right">${inr(order.gst)}</td></tr>` : ''}
     <tr><td style="padding:2px 0">Delivery</td><td style="padding:2px 0;text-align:right">${order.delivery_fee === 0 ? 'Free' : inr(order.delivery_fee)}</td></tr>
     <tr><td style="padding:8px 0;font-weight:bold;border-top:2px solid #2A1E17">Total</td>
         <td style="padding:8px 0;text-align:right;font-weight:bold;border-top:2px solid #2A1E17">${inr(order.total)}</td></tr>
@@ -243,7 +271,10 @@ function buildEmail(order) {
   <div style="font-family:Arial,sans-serif;font-size:14px;background:#FDF8F0;border:1px solid #eadfce;border-radius:10px;padding:14px;margin-top:10px">
     <b>${escapeHtml(order.customer_name)}</b><br/>
     ${escapeHtml(order.phone)} · ${escapeHtml(order.email)}<br/>
-    ${escapeHtml(order.address)}<br/>${escapeHtml(order.city)} — ${escapeHtml(order.pincode)}
+    ${isDineIn
+      ? `<b>Table ${escapeHtml(order.table_number)}</b> (dine-in — no delivery)`
+      : `${escapeHtml(order.address)}<br/>${escapeHtml(order.city)} — ${escapeHtml(order.pincode)}` +
+        (mapsUrl ? `<br/><a href="${mapsUrl}" style="color:#B47F22">Open in Google Maps →</a>` : '')}
   </div>
   <p style="font-family:Arial,sans-serif;font-size:14px"><b>Notes:</b> ${order.notes ? escapeHtml(order.notes) : '—'}</p>
 </div>`;
@@ -338,6 +369,7 @@ app.get('/api/catalog', (_req, res) =>
   res.json({
     products: Object.values(CATALOG), delivery_fee: DELIVERY_FEE, free_delivery_above: FREE_DELIVERY_ABOVE,
     upi_id: OWNER_UPI_ID || null, upi_name: OWNER_UPI_NAME,
+    gst_percent: ENABLE_GST ? GST_PERCENT : 0,
   })
 );
 
@@ -416,7 +448,7 @@ app.get('/api/my-orders', async (req, res) => {
    A delivery person opens deliver.html, picks the order, and their phone's
    GPS position gets posted here every few seconds while status is
    "out_for_delivery". The customer's tracking page polls it back out. */
-app.post('/api/orders/:code/location', requireAdmin, async (req, res) => {
+app.post('/api/orders/:code/location', requireRole('manager', 'delivery'), async (req, res) => {
   const code = String(req.params.code || '').trim().toUpperCase();
   const lat = Number((req.body || {}).lat);
   const lng = Number((req.body || {}).lng);
@@ -443,6 +475,8 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
   const name = String(b.customer_name || '').trim();
   const phone = String(b.phone || '').replace(/[\s-]/g, '').replace(/^\+91/, '');
   const email = String(b.email || '').trim();
+  const tableNumber = String(b.table_number || '').trim().slice(0, 10);
+  const isDineIn = tableNumber.length > 0;
   const address = String(b.address || '').trim();
   const city = String(b.city || '').trim();
   const pincode = String(b.pincode || '').trim();
@@ -453,9 +487,11 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
   if (!/^[6-9]\d{9}$/.test(phone)) errors.phone = 'Enter a valid 10-digit Indian mobile number.';
   else if (phoneRateLimited(phone)) errors.phone = 'Too many orders from this number recently. Please wait a bit, or call us if it\'s urgent.';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) errors.email = 'Enter a valid email address.';
-  if (address.length < 8) errors.address = 'Please enter your full delivery address.';
-  if (city.length < 2) errors.city = 'Please enter your city.';
-  if (!/^\d{6}$/.test(pincode)) errors.pincode = 'Pincode must be 6 digits.';
+  if (!isDineIn) {
+    if (address.length < 8) errors.address = 'Please enter your full delivery address.';
+    if (city.length < 2) errors.city = 'Please enter your city.';
+    if (!/^\d{6}$/.test(pincode)) errors.pincode = 'Pincode must be 6 digits.';
+  }
   if (payment !== 'UPI' && payment !== 'COD') errors.payment_method = 'Choose UPI or Cash on Delivery.';
 
   let stockRows = [];
@@ -489,7 +525,7 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
   if (Object.keys(errors).length) return res.status(400).json({ error: 'validation_failed', errors });
 
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  let delivery_fee = subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE;
+  let delivery_fee = isDineIn ? 0 : (subtotal >= FREE_DELIVERY_ABOVE ? 0 : DELIVERY_FEE);
   let discount = 0;
   let couponCode = '';
   if (b.coupon_code) {
@@ -499,7 +535,8 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     if (cr.freeDelivery) delivery_fee = 0;
     couponCode = String(b.coupon_code).trim().toUpperCase();
   }
-  const total = Math.max(0, subtotal + delivery_fee - discount);
+  const gst = ENABLE_GST ? Math.round(((subtotal - discount) * GST_PERCENT) / 100) : 0;
+  const total = Math.max(0, subtotal + delivery_fee - discount + gst);
   const now = new Date();
   const ist = istParts(now);
 
@@ -507,16 +544,18 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
     const order_code = await nextOrderCode();
     const insertResult = await db.execute({
       sql: `INSERT INTO orders (order_code, created_at, created_at_ist, customer_name, phone, email, address, city,
-              pincode, items, subtotal, delivery_fee, total, payment_method, notes, status, email_sent, coupon_code, discount)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',0,?,?)`,
+              pincode, items, subtotal, delivery_fee, total, payment_method, notes, status, email_sent, coupon_code, discount, table_number, gst)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',0,?,?,?,?)`,
       args: [order_code, now.toISOString(), ist.display, name, phone, email, address, city, pincode,
-             JSON.stringify(items), subtotal, delivery_fee, total, payment, notes, couponCode || null, discount],
+             JSON.stringify(items), subtotal, delivery_fee, total, payment, notes, couponCode || null, discount,
+             tableNumber || null, gst],
     });
 
     const orderId = Number(insertResult.lastInsertRowid);
     const orderRow = { id: orderId, order_code, created_at: now.toISOString(), created_at_ist: ist.display,
       customer_name: name, phone, email, address, city, pincode, items: JSON.stringify(items),
-      subtotal, delivery_fee, total, payment_method: payment, notes, coupon_code: couponCode, discount };
+      subtotal, delivery_fee, total, payment_method: payment, notes, coupon_code: couponCode, discount,
+      table_number: tableNumber || null, gst };
 
     for (const [flavourId, qtyNeeded] of Object.entries(flavourQtyNeeded)) {
       await db.execute({
@@ -529,27 +568,47 @@ app.post('/api/orders', orderLimiter, async (req, res) => {
       sendOwnerAlert(orderRow).catch((e) => console.error('[email] threw', e.message));
     });
 
-    res.status(201).json({ ok: true, order_code, subtotal, delivery_fee, discount, coupon_code: couponCode || null, total, payment_method: payment, created_at_ist: ist.display });
+    res.status(201).json({ ok: true, order_code, subtotal, delivery_fee, discount, gst, coupon_code: couponCode || null, table_number: tableNumber || null, total, payment_method: payment, created_at_ist: ist.display });
   } catch (e) {
     console.error('[orders] insert failed', e.message);
     res.status(500).json({ error: 'server_error', message: 'Could not save your order. Please try again.' });
   }
 });
 
-app.get('/api/orders', requireAdmin, async (_req, res) => {
+app.get('/api/admin/whoami', requireAdmin, (req, res) => res.json({ role: req.role }));
+
+const STATUSES = ['new', 'confirmed', 'preparing', 'ready', 'out_for_delivery', 'delivered', 'cancelled'];
+// Which statuses each role is allowed to SEE in their order queue, and which
+// statuses each role is allowed to SET. Manager can see/set everything.
+const ROLE_VISIBLE_STATUSES = {
+  kitchen: ['new', 'confirmed', 'preparing', 'ready'],
+  delivery: ['ready', 'out_for_delivery', 'delivered'],
+};
+const ROLE_SETTABLE_STATUSES = {
+  kitchen: ['confirmed', 'preparing', 'ready'],
+  delivery: ['out_for_delivery', 'delivered'],
+};
+
+app.get('/api/orders', requireAdmin, async (req, res) => {
   try {
     const rs = await db.execute('SELECT * FROM orders ORDER BY id DESC');
-    res.json({ orders: rs.rows.map((r) => ({ ...r, items: JSON.parse(r.items), email_sent: !!r.email_sent })) });
+    let rows = rs.rows;
+    const visible = ROLE_VISIBLE_STATUSES[req.role];
+    if (visible) rows = rows.filter((r) => visible.includes(r.status));
+    res.json({ orders: rows.map((r) => ({ ...r, items: JSON.parse(r.items), email_sent: !!r.email_sent })) });
   } catch (e) {
     console.error('[orders] list failed', e.message);
     res.status(500).json({ error: 'server_error' });
   }
 });
 
-const STATUSES = ['new', 'confirmed', 'out_for_delivery', 'delivered', 'cancelled'];
 app.patch('/api/orders/:id/status', requireAdmin, async (req, res) => {
   const status = String((req.body || {}).status || '');
   if (!STATUSES.includes(status)) return res.status(400).json({ error: 'invalid_status', allowed: STATUSES });
+  const settable = ROLE_SETTABLE_STATUSES[req.role];
+  if (settable && !settable.includes(status)) {
+    return res.status(403).json({ error: 'forbidden', message: `Your role can't set status to "${status}".` });
+  }
   try {
     const r = await db.execute({ sql: 'UPDATE orders SET status = ? WHERE id = ?', args: [status, Number(req.params.id)] });
     if (!r.rowsAffected) return res.status(404).json({ error: 'not_found' });
@@ -560,7 +619,7 @@ app.patch('/api/orders/:id/status', requireAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
+app.get('/api/admin/summary', requireRole('manager'), async (_req, res) => {
   try {
     const rs = await db.execute("SELECT total, created_at, status FROM orders WHERE status != 'cancelled'");
     const todayKey = istParts().dateKey;
@@ -586,7 +645,7 @@ app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
 });
 
 /* ---- admin: menu / stock toggle + quantity ---- */
-app.get('/api/admin/stock', requireAdmin, async (_req, res) => {
+app.get('/api/admin/stock', requireRole('manager'), async (_req, res) => {
   try {
     const rs = await db.execute('SELECT flavour_id, available, quantity FROM flavour_stock');
     const overrides = new Map(rs.rows.map((r) => [r.flavour_id, r]));
@@ -610,7 +669,7 @@ app.get('/api/admin/stock', requireAdmin, async (_req, res) => {
   }
 });
 
-app.patch('/api/admin/stock/:flavourId', requireAdmin, async (req, res) => {
+app.patch('/api/admin/stock/:flavourId', requireRole('manager'), async (req, res) => {
   const flavourId = String(req.params.flavourId || '');
   const available = !!(req.body || {}).available;
   if (!FLAVOURS.some((f) => f.id === flavourId)) return res.status(404).json({ error: 'not_found' });
@@ -627,7 +686,7 @@ app.patch('/api/admin/stock/:flavourId', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/stock/:flavourId/quantity', requireAdmin, async (req, res) => {
+app.patch('/api/admin/stock/:flavourId/quantity', requireRole('manager'), async (req, res) => {
   const flavourId = String(req.params.flavourId || '');
   const quantity = Math.max(0, Math.floor(Number((req.body || {}).quantity)));
   if (!FLAVOURS.some((f) => f.id === flavourId)) return res.status(404).json({ error: 'not_found' });
@@ -655,7 +714,7 @@ app.use(express.static(ROOT, { extensions: ['html'] }));
 initDb()
   .then(() => {
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Veloura backend listening on ${PORT} · admin key ${ADMIN_KEY === 'veloura-aditya-2026' ? '(default)' : '(from env)'} · db ${process.env.TURSO_DATABASE_URL ? 'Turso (persistent)' : 'local file (NOT persistent on Render)'}`);
+      console.log(`Veloura backend listening on ${PORT} · roles: manager/kitchen/delivery configured · db ${process.env.TURSO_DATABASE_URL ? 'Turso (persistent)' : 'local file (NOT persistent on Render)'}`);
     });
   })
   .catch((e) => {
